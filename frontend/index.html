@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Food Planer</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .drag-over { background-color: #dbeafe !important; border: 2px dashed #3b82f6 !important; }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const API_BASE = '/api';
+
+        // Icons as SVG components
+        const Icons = {
+            Search: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>,
+            Plus: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>,
+            X: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>,
+            Grip: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" /></svg>,
+            Cart: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" /></svg>,
+            Chef: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" /></svg>,
+            Flame: () => <svg className="w-4 h-4 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z" /></svg>,
+            Clock: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
+            Check: () => <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>,
+            Trash: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>,
+            Instagram: () => <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>,
+            Sparkles: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" /></svg>,
+        };
+
+        const weekDays = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
+
+        function FoodPlaner() {
+            const [activeTab, setActiveTab] = React.useState('search');
+            const [searchMode, setSearchMode] = React.useState('craving');
+            const [searchQuery, setSearchQuery] = React.useState('');
+            const [useClaude, setUseClaude] = React.useState(false);
+            const [pantryItems, setPantryItems] = React.useState([]);
+            const [newPantryItem, setNewPantryItem] = React.useState('');
+            const [instagramUrl, setInstagramUrl] = React.useState('');
+            const [recipes, setRecipes] = React.useState([]);
+            const [savedRecipes, setSavedRecipes] = React.useState([]);
+            const [mealPlan, setMealPlan] = React.useState([]);
+            const [shoppingList, setShoppingList] = React.useState([]);
+            const [selectedRecipe, setSelectedRecipe] = React.useState(null);
+            const [loading, setLoading] = React.useState(false);
+            const [draggedMeal, setDraggedMeal] = React.useState(null);
+
+            // Get current week dates
+            const getWeekDates = () => {
+                const today = new Date();
+                const monday = new Date(today);
+                monday.setDate(today.getDate() - today.getDay() + 1);
+                return weekDays.map((day, i) => {
+                    const date = new Date(monday);
+                    date.setDate(monday.getDate() + i);
+                    return { day, date: date.toISOString().split('T')[0] };
+                });
+            };
+
+            const weekDates = getWeekDates();
+
+            // Load initial data
+            React.useEffect(() => {
+                loadSavedRecipes();
+                loadMealPlan();
+                loadShoppingList();
+                loadPantry();
+            }, []);
+
+            const loadSavedRecipes = async () => {
+                try {
+                    const res = await fetch(`${API_BASE}/recipes`);
+                    const data = await res.json();
+                    setSavedRecipes(data);
+                } catch (e) { console.error(e); }
+            };
+
+            const loadMealPlan = async () => {
+                try {
+                    const res = await fetch(`${API_BASE}/mealplan`);
+                    const data = await res.json();
+                    setMealPlan(data);
+                } catch (e) { console.error(e); }
+            };
+
+            const loadShoppingList = async () => {
+                try {
+                    const res = await fetch(`${API_BASE}/shopping`);
+                    const data = await res.json();
+                    setShoppingList(data);
+                } catch (e) { console.error(e); }
+            };
+
+            const loadPantry = async () => {
+                try {
+                    const res = await fetch(`${API_BASE}/pantry`);
+                    const data = await res.json();
+                    setPantryItems(data);
+                } catch (e) { console.error(e); }
+            };
+
+            const searchRecipes = async () => {
+                setLoading(true);
+                try {
+                    const res = await fetch(`${API_BASE}/recipes/search`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            query: searchQuery,
+                            ingredients: searchMode === 'pantry' ? pantryItems.map(p => p.name) : [],
+                            use_claude: useClaude,
+                            max_calories: 800
+                        })
+                    });
+                    const data = await res.json();
+                    setRecipes(data);
+                } catch (e) { console.error(e); }
+                setLoading(false);
+            };
+
+            const importFromInstagram = async () => {
+                if (!instagramUrl) return;
+                setLoading(true);
+                try {
+                    const res = await fetch(`${API_BASE}/recipes/instagram`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ url: instagramUrl })
+                    });
+                    const data = await res.json();
+                    if (data.id) {
+                        setSavedRecipes(prev => [data, ...prev]);
+                        setSelectedRecipe(data);
+                        setInstagramUrl('');
+                        alert('Rezept erfolgreich importiert!');
+                    }
+                } catch (e) { 
+                    console.error(e);
+                    alert('Fehler beim Import');
+                }
+                setLoading(false);
+            };
+
+            const saveRecipe = async (recipe) => {
+                try {
+                    const res = await fetch(`${API_BASE}/recipes/save`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(recipe)
+                    });
+                    const data = await res.json();
+                    setSavedRecipes(prev => {
+                        if (prev.find(r => r.id === data.id)) return prev;
+                        return [data, ...prev];
+                    });
+                    return data;
+                } catch (e) { console.error(e); }
+            };
+
+            const addToMealPlan = async (recipe, dateStr) => {
+                // First save the recipe
+                const savedRecipe = await saveRecipe(recipe);
+                if (!savedRecipe) return;
+
+                try {
+                    const res = await fetch(`${API_BASE}/mealplan`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            recipe_id: savedRecipe.id,
+                            date: dateStr,
+                            meal_type: 'main'
+                        })
+                    });
+                    await loadMealPlan();
+                } catch (e) { console.error(e); }
+            };
+
+            const removeFromMealPlan = async (planId) => {
+                try {
+                    await fetch(`${API_BASE}/mealplan/${planId}`, { method: 'DELETE' });
+                    setMealPlan(prev => prev.filter(p => p.id !== planId));
+                } catch (e) { console.error(e); }
+            };
+
+            const moveMeal = async (planId, newDate) => {
+                try {
+                    await fetch(`${API_BASE}/mealplan/${planId}/move`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ new_date: newDate })
+                    });
+                    await loadMealPlan();
+                } catch (e) { console.error(e); }
+            };
+
+            const addPantryItem = async () => {
+                if (!newPantryItem.trim()) return;
+                try {
+                    const res = await fetch(`${API_BASE}/pantry?name=${encodeURIComponent(newPantryItem)}`, {
+                        method: 'POST'
+                    });
+                    const data = await res.json();
+                    setPantryItems(prev => [...prev, data]);
+                    setNewPantryItem('');
+                } catch (e) { console.error(e); }
+            };
+
+            const removePantryItem = async (id) => {
+                try {
+                    await fetch(`${API_BASE}/pantry/${id}`, { method: 'DELETE' });
+                    setPantryItems(prev => prev.filter(p => p.id !== id));
+                } catch (e) { console.error(e); }
+            };
+
+            const generateShoppingList = async () => {
+                try {
+                    const res = await fetch(`${API_BASE}/shopping/generate`, { method: 'POST' });
+                    const data = await res.json();
+                    setShoppingList(data);
+                    setActiveTab('shopping');
+                } catch (e) { console.error(e); }
+            };
+
+            const toggleShoppingItem = async (id) => {
+                try {
+                    await fetch(`${API_BASE}/shopping/${id}/toggle`, { method: 'PUT' });
+                    setShoppingList(prev => prev.map(item => 
+                        item.id === id ? { ...item, checked: !item.checked } : item
+                    ));
+                } catch (e) { console.error(e); }
+            };
+
+            const clearShoppingList = async () => {
+                try {
+                    await fetch(`${API_BASE}/shopping`, { method: 'DELETE' });
+                    setShoppingList([]);
+                } catch (e) { console.error(e); }
+            };
+
+            const getDayCalories = (dateStr) => {
+                return mealPlan
+                    .filter(p => p.date === dateStr)
+                    .reduce((sum, p) => sum + (p.recipe?.calories || 0), 0);
+            };
+
+            const handleDragStart = (e, meal) => {
+                setDraggedMeal(meal);
+                e.dataTransfer.effectAllowed = 'move';
+            };
+
+            const handleDragOver = (e) => {
+                e.preventDefault();
+                e.currentTarget.classList.add('drag-over');
+            };
+
+            const handleDragLeave = (e) => {
+                e.currentTarget.classList.remove('drag-over');
+            };
+
+            const handleDrop = (e, targetDate) => {
+                e.preventDefault();
+                e.currentTarget.classList.remove('drag-over');
+                if (draggedMeal && draggedMeal.date !== targetDate) {
+                    moveMeal(draggedMeal.id, targetDate);
+                }
+                setDraggedMeal(null);
+            };
+
+            return (
+                <div className="min-h-screen bg-gray-50">
+                    {/* Header */}
+                    <div className="bg-white shadow-sm border-b sticky top-0 z-10">
+                        <div className="max-w-7xl mx-auto px-4 py-4">
+                            <div className="flex items-center justify-between">
+                                <h1 className="text-2xl font-bold text-gray-800">Food Planer</h1>
+                                <div className="flex items-center gap-2 text-sm text-gray-600">
+                                    <Icons.Flame />
+                                    <span>Ziel: 1800 kcal/Tag</span>
+                                </div>
+                            </div>
+                            
+                            {/* Tabs */}
+                            <div className="flex gap-2 mt-4 overflow-x-auto">
+                                <button onClick={() => setActiveTab('search')}
+                                    className={`px-4 py-2 rounded-lg font-medium transition whitespace-nowrap flex items-center gap-2 ${
+                                        activeTab === 'search' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                    }`}>
+                                    <Icons.Search /> Rezepte
+                                </button>
+                                <button onClick={() => setActiveTab('plan')}
+                                    className={`px-4 py-2 rounded-lg font-medium transition whitespace-nowrap flex items-center gap-2 ${
+                                        activeTab === 'plan' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                    }`}>
+                                    <Icons.Chef /> Wochenplan
+                                </button>
+                                <button onClick={() => setActiveTab('shopping')}
+                                    className={`px-4 py-2 rounded-lg font-medium transition whitespace-nowrap flex items-center gap-2 ${
+                                        activeTab === 'shopping' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                    }`}>
+                                    <Icons.Cart /> Einkaufsliste
+                                    {shoppingList.filter(i => !i.checked).length > 0 && (
+                                        <span className="bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">
+                                            {shoppingList.filter(i => !i.checked).length}
+                                        </span>
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="max-w-7xl mx-auto px-4 py-6">
+                        {/* Search Tab */}
+                        {activeTab === 'search' && (
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                <div className="lg:col-span-2 space-y-4">
+                                    {/* Mode Toggle */}
+                                    <div className="bg-white rounded-xl p-4 shadow-sm">
+                                        <div className="flex gap-2 mb-4">
+                                            <button onClick={() => setSearchMode('craving')}
+                                                className={`flex-1 py-3 rounded-lg font-medium transition ${
+                                                    searchMode === 'craving' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'
+                                                }`}>
+                                                Ich hab Lust auf...
+                                            </button>
+                                            <button onClick={() => setSearchMode('pantry')}
+                                                className={`flex-1 py-3 rounded-lg font-medium transition ${
+                                                    searchMode === 'pantry' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600'
+                                                }`}>
+                                                Was hab ich zuhause?
+                                            </button>
+                                        </div>
+
+                                        {searchMode === 'craving' ? (
+                                            <div className="space-y-3">
+                                                <div className="relative">
+                                                    <div className="absolute left-3 top-3"><Icons.Search /></div>
+                                                    <input type="text" placeholder="z.B. Pasta, Curry, leicht..."
+                                                        value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+                                                        onKeyPress={(e) => e.key === 'Enter' && searchRecipes()}
+                                                        className="w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500" />
+                                                </div>
+                                                <div className="flex items-center gap-4">
+                                                    <label className="flex items-center gap-2 cursor-pointer">
+                                                        <input type="checkbox" checked={useClaude} onChange={(e) => setUseClaude(e.target.checked)}
+                                                            className="w-4 h-4 text-purple-500" />
+                                                        <span className="text-sm text-gray-600 flex items-center gap-1">
+                                                            <Icons.Sparkles /> Claude AI (smarter)
+                                                        </span>
+                                                    </label>
+                                                    <button onClick={searchRecipes} disabled={loading}
+                                                        className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50">
+                                                        {loading ? 'Suche...' : 'Suchen'}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-3">
+                                                <div className="flex gap-2">
+                                                    <input type="text" placeholder="Zutat hinzufügen..."
+                                                        value={newPantryItem} onChange={(e) => setNewPantryItem(e.target.value)}
+                                                        onKeyPress={(e) => e.key === 'Enter' && addPantryItem()}
+                                                        className="flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500" />
+                                                    <button onClick={addPantryItem}
+                                                        className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600">
+                                                        <Icons.Plus />
+                                                    </button>
+                                                </div>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {pantryItems.map(item => (
+                                                        <span key={item.id} className="px-3 py-1 bg-green-100 text-green-700 rounded-full flex items-center gap-2">
+                                                            {item.name}
+                                                            <button onClick={() => removePantryItem(item.id)}><Icons.X /></button>
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                                {pantryItems.length > 0 && (
+                                                    <button onClick={searchRecipes} disabled={loading}
+                                                        className="w-full py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50">
+                                                        {loading ? 'Suche...' : 'Rezepte finden'}
+                                                    </button>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Instagram Import */}
+                                    <div className="bg-white rounded-xl p-4 shadow-sm">
+                                        <h3 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                                            <Icons.Instagram /> Instagram Import
+                                        </h3>
+                                        <div className="flex gap-2">
+                                            <input type="text" placeholder="Instagram Post URL einfügen..."
+                                                value={instagramUrl} onChange={(e) => setInstagramUrl(e.target.value)}
+                                                className="flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-pink-500" />
+                                            <button onClick={importFromInstagram} disabled={loading || !instagramUrl}
+                                                className="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:opacity-90 disabled:opacity-50">
+                                                {loading ? '...' : 'Importieren'}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Recipe Results */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        {recipes.map((recipe, idx) => (
+                                            <div key={idx} onClick={() => setSelectedRecipe(recipe)}
+                                                className="bg-white rounded-xl shadow-sm overflow-hidden hover:shadow-md transition cursor-pointer">
+                                                {recipe.image_url ? (
+                                                    <img src={recipe.image_url} alt={recipe.title} className="h-40 w-full object-cover" />
+                                                ) : (
+                                                    <div className="h-40 bg-gradient-to-br from-orange-100 to-yellow-100 flex items-center justify-center text-6xl">
+                                                        🍽️
+                                                    </div>
+                                                )}
+                                                <div className="p-4">
+                                                    <h3 className="font-semibold text-gray-800 line-clamp-2">{recipe.title}</h3>
+                                                    <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
+                                                        <span className="flex items-center gap-1"><Icons.Flame /> {recipe.calories || '?'} kcal</span>
+                                                        <span className="flex items-center gap-1"><Icons.Clock /> {recipe.ready_in_minutes || '?'} Min</span>
+                                                    </div>
+                                                    {recipe.source === 'claude' && (
+                                                        <span className="inline-block mt-2 px-2 py-0.5 bg-purple-100 text-purple-600 text-xs rounded">AI-generiert</span>
+                                                    )}
+                                                    <div className="flex gap-1 mt-3">
+                                                        {weekDates.slice(0, 4).map(({ day, date }) => (
+                                                            <button key={day} onClick={(e) => { e.stopPropagation(); addToMealPlan(recipe, date); }}
+                                                                className="px-2 py-1 text-xs bg-blue-100 text-blue-600 rounded hover:bg-blue-200">
+                                                                +{day.slice(0, 2)}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    {recipes.length === 0 && !loading && (
+                                        <div className="text-center py-12 text-gray-400">
+                                            <div className="text-6xl mb-4">🍳</div>
+                                            <p>Suche nach Rezepten oder importiere von Instagram</p>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Recipe Detail Sidebar */}
+                                <div className="lg:col-span-1">
+                                    {selectedRecipe ? (
+                                        <div className="bg-white rounded-xl shadow-sm sticky top-28">
+                                            {selectedRecipe.image_url ? (
+                                                <img src={selectedRecipe.image_url} alt={selectedRecipe.title} className="h-48 w-full object-cover rounded-t-xl" />
+                                            ) : (
+                                                <div className="h-48 bg-gradient-to-br from-orange-100 to-yellow-100 flex items-center justify-center text-8xl rounded-t-xl">🍽️</div>
+                                            )}
+                                            <div className="p-4">
+                                                <h2 className="text-xl font-bold text-gray-800">{selectedRecipe.title}</h2>
+                                                <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
+                                                    <span className="flex items-center gap-1"><Icons.Flame /> {selectedRecipe.calories || '?'} kcal</span>
+                                                    <span className="flex items-center gap-1"><Icons.Clock /> {selectedRecipe.ready_in_minutes || '?'} Min</span>
+                                                </div>
+                                                
+                                                {selectedRecipe.ingredients?.length > 0 && (
+                                                    <div className="mt-4">
+                                                        <h3 className="font-semibold text-gray-700 mb-2">Zutaten:</h3>
+                                                        <ul className="text-sm text-gray-600 space-y-1">
+                                                            {selectedRecipe.ingredients.map((ing, idx) => (
+                                                                <li key={idx}>• {ing}</li>
+                                                            ))}
+                                                        </ul>
+                                                    </div>
+                                                )}
+
+                                                {selectedRecipe.instructions?.length > 0 && (
+                                                    <div className="mt-4">
+                                                        <h3 className="font-semibold text-gray-700 mb-2">Zubereitung:</h3>
+                                                        <ol className="text-sm text-gray-600 space-y-2">
+                                                            {selectedRecipe.instructions.map((step, idx) => (
+                                                                <li key={idx} className="flex gap-2">
+                                                                    <span className="w-5 h-5 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center flex-shrink-0 text-xs">{idx + 1}</span>
+                                                                    <span>{step}</span>
+                                                                </li>
+                                                            ))}
+                                                        </ol>
+                                                    </div>
+                                                )}
+
+                                                <div className="mt-4 pt-4 border-t">
+                                                    <p className="text-sm text-gray-500 mb-2">Hinzufügen zu:</p>
+                                                    <div className="grid grid-cols-4 gap-2">
+                                                        {weekDates.map(({ day, date }) => (
+                                                            <button key={day} onClick={() => addToMealPlan(selectedRecipe, date)}
+                                                                className="px-2 py-2 text-xs bg-blue-500 text-white rounded-lg hover:bg-blue-600">
+                                                                {day.slice(0, 2)}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="bg-white rounded-xl shadow-sm p-8 text-center text-gray-400 sticky top-28">
+                                            <div className="text-6xl mb-4 opacity-30">👨‍🍳</div>
+                                            <p>Klicke auf ein Rezept für Details</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Meal Plan Tab (Kanban) */}
+                        {activeTab === 'plan' && (
+                            <div>
+                                <div className="flex justify-between items-center mb-4">
+                                    <h2 className="text-xl font-bold text-gray-800">Wochenübersicht</h2>
+                                    <button onClick={generateShoppingList}
+                                        className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 flex items-center gap-2">
+                                        <Icons.Cart /> Einkaufsliste erstellen
+                                    </button>
+                                </div>
+                                
+                                <div className="grid grid-cols-7 gap-2">
+                                    {weekDates.map(({ day, date }) => (
+                                        <div key={day} 
+                                            className="bg-white rounded-xl shadow-sm min-h-[400px] transition-colors"
+                                            onDragOver={handleDragOver}
+                                            onDragLeave={handleDragLeave}
+                                            onDrop={(e) => handleDrop(e, date)}>
+                                            <div className="p-3 border-b bg-gray-50 rounded-t-xl">
+                                                <h3 className="font-semibold text-gray-700 text-sm">{day}</h3>
+                                                <div className="text-xs text-gray-400">{date}</div>
+                                                <div className={`text-sm mt-1 ${getDayCalories(date) > 1800 ? 'text-red-500 font-semibold' : 'text-gray-500'}`}>
+                                                    {getDayCalories(date)} / 1800 kcal
+                                                </div>
+                                                <div className="h-1.5 bg-gray-200 rounded mt-1">
+                                                    <div className={`h-1.5 rounded transition-all ${getDayCalories(date) > 1800 ? 'bg-red-500' : 'bg-green-500'}`}
+                                                        style={{ width: `${Math.min((getDayCalories(date) / 1800) * 100, 100)}%` }} />
+                                                </div>
+                                            </div>
+                                            
+                                            <div className="p-2 space-y-2">
+                                                {mealPlan.filter(p => p.date === date).map(meal => (
+                                                    <div key={meal.id} draggable onDragStart={(e) => handleDragStart(e, meal)}
+                                                        className="bg-gradient-to-r from-orange-50 to-yellow-50 rounded-lg p-2 cursor-grab active:cursor-grabbing border border-orange-100 hover:shadow-sm transition group">
+                                                        <div className="flex items-start gap-1">
+                                                            <div className="text-gray-300 mt-1"><Icons.Grip /></div>
+                                                            <div className="flex-1 min-w-0">
+                                                                {meal.recipe?.image_url && (
+                                                                    <img src={meal.recipe.image_url} alt="" className="w-full h-16 object-cover rounded mb-1" />
+                                                                )}
+                                                                <p className="text-xs font-medium text-gray-700 line-clamp-2">{meal.recipe?.title}</p>
+                                                                <p className="text-xs text-gray-500">{meal.recipe?.calories || '?'} kcal</p>
+                                                            </div>
+                                                            <button onClick={() => removeFromMealPlan(meal.id)}
+                                                                className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition p-1">
+                                                                <Icons.X />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                                
+                                                {mealPlan.filter(p => p.date === date).length === 0 && (
+                                                    <div className="text-center py-8 text-gray-300 text-xs">
+                                                        Rezepte hierher ziehen
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Shopping List Tab */}
+                        {activeTab === 'shopping' && (
+                            <div className="max-w-2xl mx-auto">
+                                <div className="bg-white rounded-xl shadow-sm">
+                                    <div className="p-4 border-b flex justify-between items-center">
+                                        <h2 className="text-xl font-bold text-gray-800">Einkaufsliste</h2>
+                                        <span className="text-sm text-gray-500">
+                                            {shoppingList.filter(i => i.checked).length} / {shoppingList.length} erledigt
+                                        </span>
+                                    </div>
+                                    
+                                    {shoppingList.length === 0 ? (
+                                        <div className="p-8 text-center text-gray-400">
+                                            <div className="text-6xl mb-4 opacity-30">🛒</div>
+                                            <p>Noch keine Einkaufsliste</p>
+                                            <p className="text-sm mt-2">Füge Rezepte zum Wochenplan hinzu</p>
+                                        </div>
+                                    ) : (
+                                        <div className="divide-y">
+                                            {shoppingList.map(item => (
+                                                <div key={item.id} onClick={() => toggleShoppingItem(item.id)}
+                                                    className={`p-4 flex items-center gap-3 cursor-pointer hover:bg-gray-50 transition ${item.checked ? 'bg-green-50' : ''}`}>
+                                                    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition ${item.checked ? 'bg-green-500 border-green-500' : 'border-gray-300'}`}>
+                                                        {item.checked && <Icons.Check />}
+                                                    </div>
+                                                    <span className={`flex-1 ${item.checked ? 'line-through text-gray-400' : 'text-gray-700'}`}>
+                                                        {item.name}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                    
+                                    {shoppingList.length > 0 && (
+                                        <div className="p-4 border-t">
+                                            <button onClick={clearShoppingList}
+                                                className="w-full py-2 text-red-500 hover:bg-red-50 rounded-lg flex items-center justify-center gap-2">
+                                                <Icons.Trash /> Liste leeren
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<FoodPlaner />);
+    </script>
+</body>
+</html>
