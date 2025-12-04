@@ -54,6 +54,8 @@
             const [selectedRecipe, setSelectedRecipe] = React.useState(null);
             const [loading, setLoading] = React.useState(false);
             const [draggedMeal, setDraggedMeal] = React.useState(null);
+            const [searchOffset, setSearchOffset] = React.useState(0);
+            const [lastSearch, setLastSearch] = React.useState(null);
 
             // Get current week dates
             const getWeekDates = () => {
@@ -109,8 +111,10 @@
                 } catch (e) { console.error(e); }
             };
 
-            const searchRecipes = async () => {
+            const searchRecipes = async (loadMore = false) => {
                 setLoading(true);
+                const currentOffset = loadMore ? searchOffset : 0;
+                
                 try {
                     const res = await fetch(`${API_BASE}/recipes/search`, {
                         method: 'POST',
@@ -119,11 +123,20 @@
                             query: searchQuery,
                             ingredients: searchMode === 'pantry' ? pantryItems.map(p => p.name) : [],
                             use_claude: useClaude,
-                            max_calories: 800
+                            max_calories: 800,
+                            offset: currentOffset
                         })
                     });
                     const data = await res.json();
-                    setRecipes(data);
+                    
+                    if (loadMore) {
+                        setRecipes(prev => [...prev, ...data]);
+                        setSearchOffset(currentOffset + 10);
+                    } else {
+                        setRecipes(data);
+                        setSearchOffset(10);
+                        setLastSearch({ query: searchQuery, useClaude, searchMode });
+                    }
                 } catch (e) { console.error(e); }
                 setLoading(false);
             };
@@ -463,6 +476,23 @@
                                         <div className="text-center py-12 text-gray-400">
                                             <div className="text-6xl mb-4">🍳</div>
                                             <p>Suche nach Rezepten oder importiere von Instagram</p>
+                                        </div>
+                                    )}
+
+                                    {/* Load More Button */}
+                                    {recipes.length > 0 && (
+                                        <div className="col-span-full">
+                                            <button 
+                                                onClick={() => searchRecipes(true)} 
+                                                disabled={loading}
+                                                className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 disabled:opacity-50 font-medium flex items-center justify-center gap-2"
+                                            >
+                                                {loading ? 'Lädt...' : (
+                                                    <>
+                                                        <Icons.Plus /> Mehr Rezepte laden
+                                                    </>
+                                                )}
+                                            </button>
                                         </div>
                                     )}
                                 </div>
