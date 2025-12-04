@@ -17,7 +17,8 @@ async def suggest_recipes(
     query: str,
     pantry_items: list[str] = None,
     max_calories: int = None,
-    existing_recipes: list[dict] = None
+    existing_recipes: list[dict] = None,
+    offset: int = 0
 ) -> list[dict]:
     """Use Claude to suggest recipes based on complex queries"""
     
@@ -35,13 +36,19 @@ async def suggest_recipes(
         titles = [r.get("title", "") for r in existing_recipes[:5]]
         context_parts.append(f"Diese Rezepte wurden bereits gefunden: {', '.join(titles)}")
     
+    # Add variation instruction for "load more"
+    variation_instruction = ""
+    if offset > 0:
+        context_parts.append(f"Der Nutzer hat bereits {offset} Rezepte gesehen und möchte ANDERE Vorschläge.")
+        variation_instruction = f"\n\nWICHTIG: Gib komplett ANDERE Rezepte als bei den vorherigen {offset} Vorschlägen. Sei kreativ und variiere stark!"
+    
     context = "\n".join(context_parts) if context_parts else ""
     
     prompt = f"""Du bist ein Ernährungsberater und Rezept-Experte. 
 
 {context}
 
-Anfrage des Nutzers: {query}
+Anfrage des Nutzers: {query}{variation_instruction}
 
 Erstelle 10 passende Rezeptvorschläge. Antworte NUR mit einem JSON Array, ohne zusätzlichen Text.
 
