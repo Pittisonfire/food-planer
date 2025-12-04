@@ -16,7 +16,7 @@ async def search_recipes(
     ingredients: list[str] = None,
     max_calories: int = None,
     max_ready_time: int = None,
-    number: int = 5  # Reduced from 10 to save API points!
+    number: int = 10  # 10 recipes per search (~11 points)
 ) -> list[dict]:
     """
     Search recipes from Spoonacular API
@@ -26,7 +26,7 @@ async def search_recipes(
     - findByIngredients = 1 point  
     - getRecipeInformation = 1 point per recipe
     
-    So a search for 5 recipes costs ~6 points
+    So a search for 10 recipes costs ~11 points = ~4 searches/day
     """
     
     # Check cache first
@@ -48,7 +48,6 @@ async def search_recipes(
             # Search by ingredients
             params["ingredients"] = ",".join(ingredients)
             params["ranking"] = 2  # Maximize used ingredients
-            params["number"] = min(number, 5)  # Limit to save points
             url = f"{SPOONACULAR_BASE_URL}/recipes/findByIngredients"
             
             response = await client.get(url, params=params)
@@ -71,7 +70,6 @@ async def search_recipes(
         else:
             # Search by query
             params["query"] = query
-            params["number"] = min(number, 5)  # Limit to save points
             if max_calories:
                 params["maxCalories"] = max_calories
             if max_ready_time:
