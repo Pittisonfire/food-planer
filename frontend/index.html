@@ -56,6 +56,88 @@
             const [draggedMeal, setDraggedMeal] = React.useState(null);
             const [searchOffset, setSearchOffset] = React.useState(0);
             const [lastSearch, setLastSearch] = React.useState(null);
+            const [recipeModal, setRecipeModal] = React.useState(null);  // For showing recipe details
+
+            // Recipe Detail Modal Component
+            const RecipeModal = ({ recipe, onClose }) => {
+                if (!recipe) return null;
+                
+                return (
+                    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+                        <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                            {/* Header */}
+                            <div className="sticky top-0 bg-white border-b p-4 flex justify-between items-center">
+                                <h2 className="text-xl font-bold text-gray-800 pr-4">{recipe.title}</h2>
+                                <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full">
+                                    <Icons.X />
+                                </button>
+                            </div>
+                            
+                            {/* Image */}
+                            {recipe.image_url ? (
+                                <img src={recipe.image_url} alt={recipe.title} className="w-full h-48 object-cover" />
+                            ) : (
+                                <div className="w-full h-48 bg-gradient-to-br from-orange-100 to-yellow-100 flex items-center justify-center text-6xl">🍽️</div>
+                            )}
+                            
+                            {/* Info Bar */}
+                            <div className="flex justify-around py-4 bg-gray-50 border-b">
+                                <div className="text-center">
+                                    <div className="text-2xl font-bold text-orange-500">{recipe.calories || '?'}</div>
+                                    <div className="text-xs text-gray-500">kcal</div>
+                                </div>
+                                <div className="text-center">
+                                    <div className="text-2xl font-bold text-blue-500">{recipe.ready_in_minutes || '?'}</div>
+                                    <div className="text-xs text-gray-500">Minuten</div>
+                                </div>
+                                <div className="text-center">
+                                    <div className="text-2xl font-bold text-green-500">{recipe.servings || 2}</div>
+                                    <div className="text-xs text-gray-500">Portionen</div>
+                                </div>
+                            </div>
+                            
+                            {/* Ingredients */}
+                            <div className="p-4 border-b">
+                                <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2">
+                                    <Icons.Cart /> Zutaten
+                                </h3>
+                                <ul className="space-y-2">
+                                    {(recipe.ingredients || []).map((ing, idx) => (
+                                        <li key={idx} className="flex items-start gap-2 text-gray-700">
+                                            <span className="w-2 h-2 bg-green-500 rounded-full mt-2 flex-shrink-0"></span>
+                                            {ing}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                            
+                            {/* Instructions */}
+                            <div className="p-4">
+                                <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2">
+                                    <Icons.Chef /> Zubereitung
+                                </h3>
+                                <ol className="space-y-4">
+                                    {(recipe.instructions || []).map((step, idx) => (
+                                        <li key={idx} className="flex gap-3">
+                                            <span className="w-7 h-7 bg-blue-500 text-white rounded-full flex items-center justify-center flex-shrink-0 text-sm font-bold">
+                                                {idx + 1}
+                                            </span>
+                                            <p className="text-gray-700 pt-0.5">{step}</p>
+                                        </li>
+                                    ))}
+                                </ol>
+                            </div>
+                            
+                            {/* Close Button Mobile */}
+                            <div className="p-4 border-t">
+                                <button onClick={onClose} className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200">
+                                    Schließen
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
 
             // Get current week dates
             const getWeekDates = () => {
@@ -594,9 +676,10 @@
                                             <div className="p-2 space-y-2">
                                                 {mealPlan.filter(p => p.date === date).map(meal => (
                                                     <div key={meal.id} draggable onDragStart={(e) => handleDragStart(e, meal)}
-                                                        className="bg-gradient-to-r from-orange-50 to-yellow-50 rounded-lg p-2 cursor-grab active:cursor-grabbing border border-orange-100 hover:shadow-sm transition group">
+                                                        onClick={() => setRecipeModal(meal.recipe)}
+                                                        className="bg-gradient-to-r from-orange-50 to-yellow-50 rounded-lg p-2 cursor-pointer active:cursor-grabbing border border-orange-100 hover:shadow-md transition group">
                                                         <div className="flex items-start gap-1">
-                                                            <div className="text-gray-300 mt-1"><Icons.Grip /></div>
+                                                            <div className="text-gray-300 mt-1 cursor-grab"><Icons.Grip /></div>
                                                             <div className="flex-1 min-w-0">
                                                                 {meal.recipe?.image_url && (
                                                                     <img src={meal.recipe.image_url} alt="" className="w-full h-16 object-cover rounded mb-1" />
@@ -604,7 +687,7 @@
                                                                 <p className="text-xs font-medium text-gray-700 line-clamp-2">{meal.recipe?.title}</p>
                                                                 <p className="text-xs text-gray-500">{meal.recipe?.calories || '?'} kcal</p>
                                                             </div>
-                                                            <button onClick={() => removeFromMealPlan(meal.id)}
+                                                            <button onClick={(e) => { e.stopPropagation(); removeFromMealPlan(meal.id); }}
                                                                 className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition p-1">
                                                                 <Icons.X />
                                                             </button>
@@ -669,6 +752,9 @@
                             </div>
                         )}
                     </div>
+
+                    {/* Recipe Detail Modal */}
+                    {recipeModal && <RecipeModal recipe={recipeModal} onClose={() => setRecipeModal(null)} />}
                 </div>
             );
         }
