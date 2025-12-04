@@ -16,7 +16,8 @@ async def search_recipes(
     ingredients: list[str] = None,
     max_calories: int = None,
     max_ready_time: int = None,
-    number: int = 10  # 10 recipes per search (~11 points)
+    number: int = 10,
+    offset: int = 0  # For "load more" pagination
 ) -> list[dict]:
     """
     Search recipes from Spoonacular API
@@ -29,8 +30,8 @@ async def search_recipes(
     So a search for 10 recipes costs ~11 points = ~4 searches/day
     """
     
-    # Check cache first
-    cache_key = f"{query}_{ingredients}_{max_calories}_{number}"
+    # Check cache first (include offset in key)
+    cache_key = f"{query}_{ingredients}_{max_calories}_{number}_{offset}"
     if cache_key in _search_cache:
         print(f"Spoonacular cache hit: {cache_key}")
         return _search_cache[cache_key]
@@ -70,6 +71,7 @@ async def search_recipes(
         else:
             # Search by query
             params["query"] = query
+            params["offset"] = offset  # Pagination
             if max_calories:
                 params["maxCalories"] = max_calories
             if max_ready_time:
