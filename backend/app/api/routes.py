@@ -18,6 +18,7 @@ class RecipeSearch(BaseModel):
     ingredients: list[str] = []
     max_calories: Optional[int] = None
     use_claude: bool = False
+    offset: int = 0  # For "load more" pagination
 
 
 class InstagramImport(BaseModel):
@@ -56,19 +57,22 @@ async def search_recipes(search: RecipeSearch, db: Session = Depends(get_db)):
         recipes = await claude_ai.suggest_recipes(
             query=search.query,
             pantry_items=search.ingredients if search.ingredients else None,
-            max_calories=search.max_calories
+            max_calories=search.max_calories,
+            offset=search.offset
         )
     elif search.ingredients:
         # Search by ingredients via Spoonacular
         recipes = await spoonacular.search_recipes(
             ingredients=search.ingredients,
-            max_calories=search.max_calories
+            max_calories=search.max_calories,
+            offset=search.offset
         )
     else:
         # Search by query via Spoonacular
         recipes = await spoonacular.search_recipes(
             query=search.query,
-            max_calories=search.max_calories
+            max_calories=search.max_calories,
+            offset=search.offset
         )
     
     return recipes
