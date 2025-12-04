@@ -62,11 +62,16 @@
             const RecipeModal = ({ recipe, onClose }) => {
                 if (!recipe) return null;
                 
+                const handleAddToDay = (date) => {
+                    addToMealPlan(recipe, date);
+                    onClose();
+                };
+                
                 return (
                     <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4" onClick={onClose}>
                         <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
                             {/* Header */}
-                            <div className="sticky top-0 bg-white border-b p-4 flex justify-between items-center">
+                            <div className="sticky top-0 bg-white border-b p-4 flex justify-between items-center z-10">
                                 <h2 className="text-xl font-bold text-gray-800 pr-4">{recipe.title}</h2>
                                 <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full">
                                     <Icons.X />
@@ -93,6 +98,19 @@
                                 <div className="text-center">
                                     <div className="text-2xl font-bold text-green-500">{recipe.servings || 2}</div>
                                     <div className="text-xs text-gray-500">Portionen</div>
+                                </div>
+                            </div>
+                            
+                            {/* Quick Add Buttons */}
+                            <div className="p-4 border-b bg-blue-50">
+                                <p className="text-sm text-gray-600 mb-2 font-medium">Zum Wochenplan hinzufügen:</p>
+                                <div className="grid grid-cols-4 gap-2">
+                                    {weekDates.map(({ day, date }) => (
+                                        <button key={day} onClick={() => handleAddToDay(date)}
+                                            className="py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 text-sm font-medium">
+                                            {day.slice(0, 2)}
+                                        </button>
+                                    ))}
                                 </div>
                             </div>
                             
@@ -523,7 +541,7 @@
                                     {/* Recipe Results */}
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         {recipes.map((recipe, idx) => (
-                                            <div key={idx} onClick={() => setSelectedRecipe(recipe)}
+                                            <div key={idx} onClick={() => setRecipeModal(recipe)}
                                                 className="bg-white rounded-xl shadow-sm overflow-hidden hover:shadow-md transition cursor-pointer">
                                                 {recipe.image_url ? (
                                                     <img src={recipe.image_url} alt={recipe.title} className="h-40 w-full object-cover" />
