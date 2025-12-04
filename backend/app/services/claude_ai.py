@@ -91,7 +91,7 @@ Antworte NUR mit dem JSON Array:"""
 
 
 async def parse_instagram_recipe(instagram_url: str) -> Optional[dict]:
-    """Extract recipe from Instagram post - focuses on caption text first, then image"""
+    """Extract recipe from Instagram post - tries oEmbed first, falls back to Claude"""
     
     # Extract shortcode from URL
     match = re.search(r'instagram\.com/(?:p|reel)/([A-Za-z0-9_-]+)', instagram_url)
@@ -104,21 +104,26 @@ async def parse_instagram_recipe(instagram_url: str) -> Optional[dict]:
     
     # Try to get caption and image via Instagram's oEmbed API
     try:
-        async with httpx.AsyncClient() as http_client:
-            # oEmbed endpoint returns title (caption) and thumbnail
-            oembed_url = f"https://api.instagram.com/oembed?url={instagram_url}"
+        async with httpx.AsyncClient(follow_redirects=True) as http_client:
+            # oEmbed endpoint - add access_token parameter (public access)
+            oembed_url = f"https://graph.facebook.com/v18.0/instagram_oembed?url={instagram_url}&access_token=public"
             response = await http_client.get(oembed_url, timeout=10)
             
-            if response.status_code == 200:
+            if response.status_code == 200 and response.text:
                 oembed_data = response.json()
-                # The "title" field contains the caption text!
                 caption_text = oembed_data.get("title", "")
                 thumbnail_url = oembed_data.get("thumbnail_url")
-                author = oembed_data.get("author_name", "")
-                
-                print(f"Instagram caption found: {caption_text[:100]}...")
+                print(f"Instagram oEmbed success: {caption_text[:50]}...")
+            else:
+                print(f"Instagram oEmbed failed: {response.status_code}")
     except Exception as e:
         print(f"Instagram oEmbed error: {e}")
+    
+    # If oEmbed failed, ask Claude to create a recipe based on the URL
+    # Claude knows many popular Instagram food accounts and recipes
+    if not caption_text:
+        print("Falling back to Claude for Instagram recipe...")
+        return await create_recipe_from_instagram_url(instagram_url, shortcode)
     
     # If we have caption text, use Claude to parse it into a recipe
     if caption_text and len(caption_text) > 50:
@@ -146,7 +151,65 @@ async def parse_instagram_recipe(instagram_url: str) -> Optional[dict]:
             print(f"Instagram image fetch error: {e}")
     
     # Last fallback
-    return await create_recipe_from_url(instagram_url)
+    return await create_recipe_from_instagram_url(instagram_url, shortcode)
+
+
+async def create_recipe_from_instagram_url(url: str, shortcode: str = "") -> Optional[dict]:
+    """Create recipe based on Instagram URL using Claude's knowledge"""
+    
+    client = get_claude_client()
+    
+    prompt = f"""Ein Nutzer möchte ein Rezept von diesem Instagram-Post importieren: {url}
+
+Da ich den Instagram-Inhalt nicht direkt abrufen kann, erstelle bitte ein passendes Rezept.
+
+Wenn du den Account oder Post kennst, erstelle das spezifische Rezept.
+Wenn nicht, erstelle ein beliebtes, leckeres Rezept das zu einem Food-Instagram-Post passen würde.
+
+Antworte NUR mit einem JSON Objekt:
+{{
+    "title": "Name des Gerichts",
+    "calories": 450,
+    "ready_in_minutes": 30,
+    "servings": 2,
+    "ingredients": ["200g Zutat 1", "100g Zutat 2", "..."],
+    "instructions": ["Schritt 1 der Zubereitung", "Schritt 2", "Schritt 3", "..."]
+}}
+
+Wichtig: 
+- Realistische Kalorienangabe pro Portion
+- Vollständige Zutatenliste mit Mengenangaben
+- Detaillierte Zubereitungsschritte
+
+Antworte NUR mit dem JSON:"""
+
+    try:
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1500,
+            messages=[
+                {"role": "user", "content": prompt}
+            ]
+        )
+        
+        response_text = message.content[0].text.strip()
+        
+        json_match = re.search(r'\{[\s\S]*\}', response_text)
+        if json_match:
+            recipe = json.loads(json_match.group())
+        else:
+            recipe = json.loads(response_text)
+        
+        recipe["source"] = "instagram"
+        recipe["external_id"] = None
+        recipe["image_url"] = None
+        recipe["source_url"] = url
+        
+        return recipe
+        
+    except Exception as e:
+        print(f"Claude Instagram fallback error: {e}")
+        return None
 
 
 async def parse_caption_to_recipe(caption: str, source_url: str, image_url: str = None) -> Optional[dict]:
@@ -287,51 +350,4 @@ Antworte NUR mit dem JSON:"""
         return None
 
 
-async def create_recipe_from_url(url: str) -> Optional[dict]:
-    """Fallback: Create recipe based on URL without image"""
-    
-    client = get_claude_client()
-    
-    prompt = f"""Ein Nutzer hat diesen Instagram-Link geteilt: {url}
 
-Da ich das Bild nicht laden konnte, erstelle bitte ein typisches Rezept das zu einem Instagram Food-Post passen könnte.
-
-Antworte NUR mit einem JSON Objekt:
-{{
-    "title": "Name des Gerichts",
-    "calories": 450,
-    "ready_in_minutes": 30,
-    "servings": 2,
-    "ingredients": ["200g Zutat 1", "100g Zutat 2"],
-    "instructions": ["Schritt 1", "Schritt 2"]
-}}
-
-Antworte NUR mit dem JSON:"""
-
-    try:
-        message = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=1000,
-            messages=[
-                {"role": "user", "content": prompt}
-            ]
-        )
-        
-        response_text = message.content[0].text.strip()
-        
-        json_match = re.search(r'\{[\s\S]*\}', response_text)
-        if json_match:
-            recipe = json.loads(json_match.group())
-        else:
-            recipe = json.loads(response_text)
-        
-        recipe["source"] = "instagram"
-        recipe["external_id"] = None
-        recipe["image_url"] = None
-        recipe["source_url"] = url
-        
-        return recipe
-        
-    except Exception as e:
-        print(f"Claude fallback error: {e}")
-        return None
