@@ -43,7 +43,7 @@ async def suggest_recipes(
 
 Anfrage des Nutzers: {query}
 
-Erstelle 3-5 passende Rezeptvorschläge. Antworte NUR mit einem JSON Array, ohne zusätzlichen Text.
+Erstelle 10 passende Rezeptvorschläge. Antworte NUR mit einem JSON Array, ohne zusätzlichen Text.
 
 Format für jedes Rezept:
 {{
@@ -60,7 +60,7 @@ Antworte NUR mit dem JSON Array:"""
     try:
         message = client.messages.create(
             model="claude-sonnet-4-20250514",
-            max_tokens=2000,
+            max_tokens=4000,
             messages=[
                 {"role": "user", "content": prompt}
             ]
