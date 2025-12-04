@@ -343,26 +343,41 @@
 
                                         {searchMode === 'craving' ? (
                                             <div className="space-y-3">
+                                                {/* Search Source Toggle */}
+                                                <div className="flex rounded-lg bg-gray-100 p-1">
+                                                    <button onClick={() => setUseClaude(false)}
+                                                        className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition flex items-center justify-center gap-2 ${
+                                                            !useClaude ? 'bg-white shadow text-blue-600' : 'text-gray-600 hover:text-gray-800'
+                                                        }`}>
+                                                        <span>🍽️</span> Echte Rezepte
+                                                        <span className="text-xs bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded">50/Tag</span>
+                                                    </button>
+                                                    <button onClick={() => setUseClaude(true)}
+                                                        className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition flex items-center justify-center gap-2 ${
+                                                            useClaude ? 'bg-white shadow text-purple-600' : 'text-gray-600 hover:text-gray-800'
+                                                        }`}>
+                                                        <Icons.Sparkles /> AI Rezepte
+                                                        <span className="text-xs bg-green-100 text-green-600 px-1.5 py-0.5 rounded">Unbegrenzt</span>
+                                                    </button>
+                                                </div>
+                                                <p className="text-xs text-gray-500 text-center">
+                                                    {useClaude 
+                                                        ? 'Claude AI generiert Rezepte - flexibler, aber ohne Bilder' 
+                                                        : 'Spoonacular API - echte Rezepte mit Bildern (50 Suchen/Tag)'}
+                                                </p>
                                                 <div className="relative">
                                                     <div className="absolute left-3 top-3"><Icons.Search /></div>
-                                                    <input type="text" placeholder="z.B. Pasta, Curry, leicht..."
+                                                    <input type="text" placeholder={useClaude ? "z.B. was leichtes mit Protein, hatte gestern Pasta..." : "z.B. Pasta, Curry, Hähnchen..."}
                                                         value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
                                                         onKeyPress={(e) => e.key === 'Enter' && searchRecipes()}
                                                         className="w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500" />
                                                 </div>
-                                                <div className="flex items-center gap-4">
-                                                    <label className="flex items-center gap-2 cursor-pointer">
-                                                        <input type="checkbox" checked={useClaude} onChange={(e) => setUseClaude(e.target.checked)}
-                                                            className="w-4 h-4 text-purple-500" />
-                                                        <span className="text-sm text-gray-600 flex items-center gap-1">
-                                                            <Icons.Sparkles /> Claude AI (smarter)
-                                                        </span>
-                                                    </label>
-                                                    <button onClick={searchRecipes} disabled={loading}
-                                                        className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50">
-                                                        {loading ? 'Suche...' : 'Suchen'}
-                                                    </button>
-                                                </div>
+                                                <button onClick={searchRecipes} disabled={loading}
+                                                    className={`w-full py-3 text-white rounded-lg disabled:opacity-50 font-medium ${
+                                                        useClaude ? 'bg-purple-500 hover:bg-purple-600' : 'bg-blue-500 hover:bg-blue-600'
+                                                    }`}>
+                                                    {loading ? 'Suche...' : useClaude ? 'Mit AI suchen' : 'Rezepte suchen'}
+                                                </button>
                                             </div>
                                         ) : (
                                             <div className="space-y-3">
