@@ -97,6 +97,78 @@ Antworte NUR mit dem JSON Array:"""
         return []
 
 
+async def parse_recipe_text(text: str) -> Optional[dict]:
+    """Parse raw recipe text (from Instagram, etc.) into structured recipe"""
+    
+    client = get_claude_client()
+    
+    prompt = f"""Analysiere diesen Text und extrahiere ein vollständiges Rezept daraus.
+
+Text:
+---
+{text}
+---
+
+Erstelle ein strukturiertes Rezept mit:
+1. Einem klaren, appetitlichen Titel
+2. Geschätzte Kalorien PRO PORTION (realistisch berechnen!)
+3. Zubereitungszeit in Minuten
+4. Anzahl Portionen (aus dem Text oder schätzen)
+5. Vollständige Zutatenliste MIT Mengenangaben
+6. Klare, nummerierte Zubereitungsschritte
+
+Bei den Zutaten:
+- Übernimm die Mengenangaben aus dem Text
+- Falls Mengen fehlen, ergänze realistische Angaben
+- Formatiere einheitlich (z.B. "400g Hackfleisch", "1 Ei", "2 TL Paprika edelsüß")
+
+Bei der Zubereitung:
+- Formuliere klare, vollständige Sätze
+- Jeder Schritt sollte eine Aktion beschreiben
+- Übernimm wichtige Details wie Temperaturen und Zeiten
+
+Antworte NUR mit einem JSON Objekt:
+{{
+    "title": "Appetitlicher Name des Gerichts",
+    "calories": 450,
+    "ready_in_minutes": 30,
+    "servings": 4,
+    "ingredients": ["400g Hackfleisch", "1 Ei", "2 TL Paprika edelsüß", "..."],
+    "instructions": ["Schritt 1 als vollständiger Satz.", "Schritt 2 als vollständiger Satz.", "..."]
+}}
+
+Antworte NUR mit dem JSON:"""
+
+    try:
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=2000,
+            messages=[
+                {"role": "user", "content": prompt}
+            ]
+        )
+        
+        response_text = message.content[0].text.strip()
+        
+        # Parse JSON
+        json_match = re.search(r'\{[\s\S]*\}', response_text)
+        if json_match:
+            recipe = json.loads(json_match.group())
+        else:
+            recipe = json.loads(response_text)
+        
+        recipe["source"] = "import"
+        recipe["external_id"] = None
+        recipe["image_url"] = None
+        recipe["source_url"] = None
+        
+        return recipe
+        
+    except Exception as e:
+        print(f"Claude text parsing error: {e}")
+        return None
+
+
 async def parse_instagram_recipe(instagram_url: str) -> Optional[dict]:
     """Extract recipe from Instagram post - tries oEmbed first, falls back to Claude"""
     
