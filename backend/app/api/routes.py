@@ -43,9 +43,29 @@ class ShoppingItemCreate(BaseModel):
 
 @router.get("/recipes")
 async def get_saved_recipes(db: Session = Depends(get_db)):
-    """Get all saved recipes"""
-    recipes = db.query(Recipe).order_by(Recipe.created_at.desc()).all()
+    """Get all saved recipes, favorites first"""
+    recipes = db.query(Recipe).order_by(Recipe.is_favorite.desc(), Recipe.created_at.desc()).all()
     return recipes
+
+
+@router.get("/recipes/favorites")
+async def get_favorite_recipes(db: Session = Depends(get_db)):
+    """Get only favorite recipes"""
+    recipes = db.query(Recipe).filter(Recipe.is_favorite == True).order_by(Recipe.created_at.desc()).all()
+    return recipes
+
+
+@router.put("/recipes/{recipe_id}/favorite")
+async def toggle_favorite(recipe_id: int, db: Session = Depends(get_db)):
+    """Toggle favorite status of a recipe"""
+    recipe = db.query(Recipe).filter(Recipe.id == recipe_id).first()
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Rezept nicht gefunden")
+    
+    recipe.is_favorite = not recipe.is_favorite
+    db.commit()
+    db.refresh(recipe)
+    return recipe
 
 
 @router.post("/recipes/search")
@@ -300,7 +320,7 @@ async def generate_shopping_list(
     request: ShoppingGenerateRequest = None,
     db: Session = Depends(get_db)
 ):
-    """Generate shopping list from meal plan for specific dates"""
+    """Generate shopping list from meal plan for specific dates, excluding pantry items"""
     
     # If no dates provided, use current and next week
     if not request or not request.dates:
@@ -325,11 +345,26 @@ async def generate_shopping_list(
             for ingredient in recipe.ingredients:
                 all_ingredients.add(ingredient)
     
+    # Get pantry items to exclude
+    pantry_items = db.query(PantryItem).all()
+    pantry_names = [p.name.lower() for p in pantry_items]
+    
+    # Filter out ingredients that match pantry items
+    def is_in_pantry(ingredient: str) -> bool:
+        ingredient_lower = ingredient.lower()
+        for pantry_name in pantry_names:
+            # Check if pantry item is contained in ingredient or vice versa
+            if pantry_name in ingredient_lower or ingredient_lower in pantry_name:
+                return True
+        return False
+    
+    filtered_ingredients = [ing for ing in all_ingredients if not is_in_pantry(ing)]
+    
     # Clear existing shopping list
     db.query(ShoppingItem).delete()
     
     # Add new items
-    for ingredient in sorted(all_ingredients):
+    for ingredient in sorted(filtered_ingredients):
         item = ShoppingItem(name=ingredient)
         db.add(item)
     
