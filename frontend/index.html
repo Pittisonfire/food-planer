@@ -57,6 +57,8 @@
             const [searchOffset, setSearchOffset] = React.useState(0);
             const [lastSearch, setLastSearch] = React.useState(null);
             const [recipeModal, setRecipeModal] = React.useState(null);  // For showing recipe details
+            const [shoppingFilter, setShoppingFilter] = React.useState('all'); // 'all', 'kw49', 'kw50', 'custom'
+            const [selectedDays, setSelectedDays] = React.useState([]);  // For custom day selection
 
             // Recipe Detail Modal Component
             const RecipeModal = ({ recipe, onClose }) => {
@@ -101,17 +103,22 @@
                                 </div>
                             </div>
                             
-                            {/* Quick Add Buttons */}
+                            {/* Quick Add Buttons - Two Weeks */}
                             <div className="p-4 border-b bg-blue-50">
-                                <p className="text-sm text-gray-600 mb-2 font-medium">Zum Wochenplan hinzufügen:</p>
-                                <div className="grid grid-cols-4 gap-2">
-                                    {weekDates.map(({ day, date }) => (
-                                        <button key={day} onClick={() => handleAddToDay(date)}
-                                            className="py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 text-sm font-medium">
-                                            {day.slice(0, 2)}
-                                        </button>
-                                    ))}
-                                </div>
+                                <p className="text-sm text-gray-600 mb-3 font-medium">Zum Wochenplan hinzufügen:</p>
+                                {twoWeeks.map((week, idx) => (
+                                    <div key={week.weekNum} className={idx > 0 ? 'mt-3' : ''}>
+                                        <div className="text-xs text-blue-600 font-semibold mb-1">KW {week.weekNum}</div>
+                                        <div className="grid grid-cols-7 gap-1">
+                                            {week.days.map(({ day, date, shortDay }) => (
+                                                <button key={date} onClick={() => handleAddToDay(date)}
+                                                    className="py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 text-xs font-medium">
+                                                    {shortDay}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                             
                             {/* Ingredients */}
@@ -157,19 +164,55 @@
                 );
             };
 
-            // Get current week dates
-            const getWeekDates = () => {
+            // Get calendar week number (ISO week)
+            const getWeekNumber = (date) => {
+                const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+                const dayNum = d.getUTCDay() || 7;
+                d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+                const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+                return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+            };
+
+            // Get two weeks of dates starting from current week's Monday
+            const getTwoWeekDates = () => {
                 const today = new Date();
                 const monday = new Date(today);
                 monday.setDate(today.getDate() - today.getDay() + 1);
-                return weekDays.map((day, i) => {
-                    const date = new Date(monday);
-                    date.setDate(monday.getDate() + i);
-                    return { day, date: date.toISOString().split('T')[0] };
-                });
+                
+                const weeks = [];
+                
+                for (let week = 0; week < 2; week++) {
+                    const weekStart = new Date(monday);
+                    weekStart.setDate(monday.getDate() + (week * 7));
+                    const weekNum = getWeekNumber(weekStart);
+                    
+                    const weekDays = weekDays2.map((day, i) => {
+                        const date = new Date(weekStart);
+                        date.setDate(weekStart.getDate() + i);
+                        return {
+                            day: day,
+                            shortDay: day.slice(0, 2),
+                            date: date.toISOString().split('T')[0],
+                            weekNum: weekNum
+                        };
+                    });
+                    
+                    weeks.push({
+                        weekNum: weekNum,
+                        days: weekDays,
+                        label: `KW ${weekNum}`
+                    });
+                }
+                
+                return weeks;
             };
-
-            const weekDates = getWeekDates();
+            
+            const weekDays2 = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
+            const twoWeeks = getTwoWeekDates();
+            const allDates = twoWeeks.flatMap(w => w.days);
+            
+            // Keep weekDates for backwards compatibility (first week)
+            const weekDates = twoWeeks[0].days;
 
             // Load initial data
             React.useEffect(() => {
@@ -338,12 +381,27 @@
                 } catch (e) { console.error(e); }
             };
 
-            const generateShoppingList = async () => {
+            const generateShoppingList = async (filter = 'all', customDates = []) => {
                 try {
-                    const res = await fetch(`${API_BASE}/shopping/generate`, { method: 'POST' });
+                    // Determine which dates to include
+                    let dates = [];
+                    if (filter === 'all') {
+                        dates = allDates.map(d => d.date);
+                    } else if (filter.startsWith('kw')) {
+                        const kwNum = parseInt(filter.replace('kw', ''));
+                        const week = twoWeeks.find(w => w.weekNum === kwNum);
+                        if (week) dates = week.days.map(d => d.date);
+                    } else if (filter === 'custom') {
+                        dates = customDates;
+                    }
+                    
+                    const res = await fetch(`${API_BASE}/shopping/generate`, { 
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ dates })
+                    });
                     const data = await res.json();
                     setShoppingList(data);
-                    setActiveTab('shopping');
                 } catch (e) { console.error(e); }
             };
 
@@ -673,71 +731,86 @@
                             <div>
                                 <div className="flex justify-between items-center mb-4">
                                     <h2 className="text-xl font-bold text-gray-800">Wochenübersicht</h2>
-                                    <button onClick={generateShoppingList}
+                                    <button onClick={() => setActiveTab('shopping')}
                                         className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 flex items-center gap-2 text-sm">
-                                        <Icons.Cart /> erstellen
+                                        <Icons.Cart /> Einkaufsliste
                                     </button>
                                 </div>
                                 
-                                {/* Mobile: vertical stack, Desktop: 7-column grid */}
-                                <div className="flex flex-col lg:grid lg:grid-cols-7 gap-3">
-                                    {weekDates.map(({ day, date }) => (
-                                        <div key={day} 
-                                            className="bg-white rounded-xl shadow-sm lg:min-h-[350px] transition-colors"
-                                            onDragOver={handleDragOver}
-                                            onDragLeave={handleDragLeave}
-                                            onDrop={(e) => handleDrop(e, date)}>
-                                            {/* Mobile: horizontal header with day info, Desktop: stacked */}
-                                            <div className="p-3 border-b bg-gray-50 rounded-t-xl flex lg:block items-center justify-between gap-4">
-                                                <div className="flex lg:block items-center gap-3">
-                                                    <h3 className="font-semibold text-gray-700">{day}</h3>
-                                                    <div className="text-xs text-gray-400">{date}</div>
-                                                </div>
-                                                <div className="flex lg:block items-center gap-3">
-                                                    <div className={`text-sm font-medium ${getDayCalories(date) > 1800 ? 'text-red-500' : 'text-gray-600'}`}>
-                                                        {getDayCalories(date)} / 1800 kcal
-                                                    </div>
-                                                    <div className="w-24 lg:w-full h-2 bg-gray-200 rounded lg:mt-1">
-                                                        <div className={`h-2 rounded transition-all ${getDayCalories(date) > 1800 ? 'bg-red-500' : 'bg-green-500'}`}
-                                                            style={{ width: `${Math.min((getDayCalories(date) / 1800) * 100, 100)}%` }} />
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            
-                                            <div className="p-2 space-y-2">
-                                                {mealPlan.filter(p => p.date === date).map(meal => (
-                                                    <div key={meal.id} draggable onDragStart={(e) => handleDragStart(e, meal)}
-                                                        onClick={() => setRecipeModal(meal.recipe)}
-                                                        className="bg-gradient-to-r from-orange-50 to-yellow-50 rounded-lg p-3 cursor-pointer active:cursor-grabbing border border-orange-100 hover:shadow-md transition group">
-                                                        <div className="flex items-center gap-3">
-                                                            <div className="text-gray-300 cursor-grab hidden lg:block"><Icons.Grip /></div>
-                                                            {meal.recipe?.image_url && (
-                                                                <img src={meal.recipe.image_url} alt="" className="w-16 h-16 lg:w-full lg:h-20 object-cover rounded flex-shrink-0 lg:hidden" />
-                                                            )}
-                                                            <div className="flex-1 min-w-0">
-                                                                {meal.recipe?.image_url && (
-                                                                    <img src={meal.recipe.image_url} alt="" className="w-full h-20 object-cover rounded mb-2 hidden lg:block" />
-                                                                )}
-                                                                <p className="text-sm font-medium text-gray-700 line-clamp-2">{meal.recipe?.title}</p>
-                                                                <p className="text-xs text-gray-500 mt-1">{meal.recipe?.calories || '?'} kcal • {meal.recipe?.ready_in_minutes || '?'} Min</p>
+                                {/* Two weeks display */}
+                                {twoWeeks.map((week, weekIdx) => (
+                                    <div key={week.weekNum} className={weekIdx > 0 ? 'mt-6' : ''}>
+                                        {/* Week header */}
+                                        <div className="flex items-center gap-2 mb-3">
+                                            <span className="bg-blue-500 text-white px-3 py-1 rounded-full text-sm font-bold">
+                                                KW {week.weekNum}
+                                            </span>
+                                            <span className="text-sm text-gray-500">
+                                                {week.days[0].date.split('-').reverse().slice(0, 2).join('.')} - {week.days[6].date.split('-').reverse().slice(0, 2).join('.')}
+                                            </span>
+                                        </div>
+                                        
+                                        {/* Mobile: vertical stack, Desktop: 7-column grid */}
+                                        <div className="flex flex-col lg:grid lg:grid-cols-7 gap-3">
+                                            {week.days.map(({ day, date }) => (
+                                                <div key={date} 
+                                                    className="bg-white rounded-xl shadow-sm lg:min-h-[280px] transition-colors"
+                                                    onDragOver={handleDragOver}
+                                                    onDragLeave={handleDragLeave}
+                                                    onDrop={(e) => handleDrop(e, date)}>
+                                                    {/* Mobile: horizontal header with day info, Desktop: stacked */}
+                                                    <div className="p-3 border-b bg-gray-50 rounded-t-xl flex lg:block items-center justify-between gap-4">
+                                                        <div className="flex lg:block items-center gap-3">
+                                                            <h3 className="font-semibold text-gray-700">{day}</h3>
+                                                            <div className="text-xs text-gray-400">{date.split('-').reverse().slice(0, 2).join('.')}</div>
+                                                        </div>
+                                                        <div className="flex lg:block items-center gap-3">
+                                                            <div className={`text-sm font-medium ${getDayCalories(date) > 1800 ? 'text-red-500' : 'text-gray-600'}`}>
+                                                                {getDayCalories(date)} / 1800 kcal
                                                             </div>
-                                                            <button onClick={(e) => { e.stopPropagation(); removeFromMealPlan(meal.id); }}
-                                                                className="text-red-400 hover:text-red-600 transition p-1 flex-shrink-0">
-                                                                <Icons.X />
-                                                            </button>
+                                                            <div className="w-24 lg:w-full h-2 bg-gray-200 rounded lg:mt-1">
+                                                                <div className={`h-2 rounded transition-all ${getDayCalories(date) > 1800 ? 'bg-red-500' : 'bg-green-500'}`}
+                                                                    style={{ width: `${Math.min((getDayCalories(date) / 1800) * 100, 100)}%` }} />
+                                                            </div>
                                                         </div>
                                                     </div>
-                                                ))}
-                                                
-                                                {mealPlan.filter(p => p.date === date).length === 0 && (
-                                                    <div className="text-center py-4 lg:py-8 text-gray-300 text-sm">
-                                                        Noch keine Rezepte
+                                                    
+                                                    <div className="p-2 space-y-2">
+                                                        {mealPlan.filter(p => p.date === date).map(meal => (
+                                                            <div key={meal.id} draggable onDragStart={(e) => handleDragStart(e, meal)}
+                                                                onClick={() => setRecipeModal(meal.recipe)}
+                                                                className="bg-gradient-to-r from-orange-50 to-yellow-50 rounded-lg p-3 cursor-pointer active:cursor-grabbing border border-orange-100 hover:shadow-md transition group">
+                                                                <div className="flex items-center gap-3">
+                                                                    <div className="text-gray-300 cursor-grab hidden lg:block"><Icons.Grip /></div>
+                                                                    {meal.recipe?.image_url && (
+                                                                        <img src={meal.recipe.image_url} alt="" className="w-16 h-16 lg:w-full lg:h-20 object-cover rounded flex-shrink-0 lg:hidden" />
+                                                                    )}
+                                                                    <div className="flex-1 min-w-0">
+                                                                        {meal.recipe?.image_url && (
+                                                                            <img src={meal.recipe.image_url} alt="" className="w-full h-20 object-cover rounded mb-2 hidden lg:block" />
+                                                                        )}
+                                                                        <p className="text-sm font-medium text-gray-700 line-clamp-2">{meal.recipe?.title}</p>
+                                                                        <p className="text-xs text-gray-500 mt-1">{meal.recipe?.calories || '?'} kcal</p>
+                                                                    </div>
+                                                                    <button onClick={(e) => { e.stopPropagation(); removeFromMealPlan(meal.id); }}
+                                                                        className="text-red-400 hover:text-red-600 transition p-1 flex-shrink-0">
+                                                                        <Icons.X />
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                        
+                                                        {mealPlan.filter(p => p.date === date).length === 0 && (
+                                                            <div className="text-center py-4 lg:py-8 text-gray-300 text-sm">
+                                                                Noch keine Rezepte
+                                                            </div>
+                                                        )}
                                                     </div>
-                                                )}
-                                            </div>
+                                                </div>
+                                            ))}
                                         </div>
-                                    ))}
-                                </div>
+                                    </div>
+                                ))}
                             </div>
                         )}
 
@@ -745,18 +818,84 @@
                         {activeTab === 'shopping' && (
                             <div className="max-w-2xl mx-auto">
                                 <div className="bg-white rounded-xl shadow-sm">
-                                    <div className="p-4 border-b flex justify-between items-center">
-                                        <h2 className="text-xl font-bold text-gray-800">Einkaufsliste</h2>
-                                        <span className="text-sm text-gray-500">
-                                            {shoppingList.filter(i => i.checked).length} / {shoppingList.length} erledigt
-                                        </span>
+                                    <div className="p-4 border-b">
+                                        <div className="flex justify-between items-center mb-4">
+                                            <h2 className="text-xl font-bold text-gray-800">Einkaufsliste</h2>
+                                            <span className="text-sm text-gray-500">
+                                                {shoppingList.filter(i => i.checked).length} / {shoppingList.length} erledigt
+                                            </span>
+                                        </div>
+                                        
+                                        {/* Filter Options */}
+                                        <div className="space-y-3">
+                                            <p className="text-sm font-medium text-gray-600">Einkaufen für:</p>
+                                            <div className="flex flex-wrap gap-2">
+                                                <button onClick={() => { setShoppingFilter('all'); generateShoppingList('all'); }}
+                                                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
+                                                        shoppingFilter === 'all' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                                    }`}>
+                                                    Alle Rezepte
+                                                </button>
+                                                {twoWeeks.map(week => (
+                                                    <button key={week.weekNum} 
+                                                        onClick={() => { setShoppingFilter(`kw${week.weekNum}`); generateShoppingList(`kw${week.weekNum}`); }}
+                                                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
+                                                            shoppingFilter === `kw${week.weekNum}` ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                                        }`}>
+                                                        KW {week.weekNum}
+                                                    </button>
+                                                ))}
+                                                <button onClick={() => setShoppingFilter('custom')}
+                                                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
+                                                        shoppingFilter === 'custom' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                                    }`}>
+                                                    Bestimmte Tage
+                                                </button>
+                                            </div>
+                                            
+                                            {/* Custom day selector */}
+                                            {shoppingFilter === 'custom' && (
+                                                <div className="mt-3 p-3 bg-gray-50 rounded-lg">
+                                                    <p className="text-xs text-gray-500 mb-2">Tage auswählen:</p>
+                                                    {twoWeeks.map(week => (
+                                                        <div key={week.weekNum} className="mb-2">
+                                                            <div className="text-xs font-semibold text-gray-500 mb-1">KW {week.weekNum}</div>
+                                                            <div className="flex flex-wrap gap-1">
+                                                                {week.days.map(({ shortDay, date }) => (
+                                                                    <button key={date}
+                                                                        onClick={() => {
+                                                                            if (selectedDays.includes(date)) {
+                                                                                setSelectedDays(selectedDays.filter(d => d !== date));
+                                                                            } else {
+                                                                                setSelectedDays([...selectedDays, date]);
+                                                                            }
+                                                                        }}
+                                                                        className={`px-2 py-1 rounded text-xs font-medium transition ${
+                                                                            selectedDays.includes(date) 
+                                                                                ? 'bg-green-500 text-white' 
+                                                                                : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-100'
+                                                                        }`}>
+                                                                        {shortDay}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                    <button onClick={() => generateShoppingList('custom', selectedDays)}
+                                                        disabled={selectedDays.length === 0}
+                                                        className="mt-2 w-full py-2 bg-green-500 text-white rounded-lg text-sm font-medium hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed">
+                                                        Liste erstellen ({selectedDays.length} Tage)
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                     
                                     {shoppingList.length === 0 ? (
                                         <div className="p-8 text-center text-gray-400">
                                             <div className="text-6xl mb-4 opacity-30">🛒</div>
                                             <p>Noch keine Einkaufsliste</p>
-                                            <p className="text-sm mt-2">Füge Rezepte zum Wochenplan hinzu</p>
+                                            <p className="text-sm mt-2">Wähle oben eine Option und erstelle die Liste</p>
                                         </div>
                                     ) : (
                                         <div className="divide-y">
