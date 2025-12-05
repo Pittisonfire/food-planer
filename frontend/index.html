@@ -251,16 +251,17 @@
                         body: JSON.stringify({ text: instagramUrl })
                     });
                     const data = await res.json();
-                    if (data.id) {
+                    if (res.ok && data.id) {
                         setSavedRecipes(prev => [data, ...prev]);
                         setRecipeModal(data);
                         setInstagramUrl('');
                     } else {
-                        alert('Fehler: ' + (data.detail || 'Konnte Rezept nicht erstellen'));
+                        const errorMsg = data.detail || JSON.stringify(data) || 'Konnte Rezept nicht erstellen';
+                        alert('Fehler: ' + errorMsg);
                     }
                 } catch (e) { 
                     console.error(e);
-                    alert('Fehler beim Import');
+                    alert('Fehler beim Import: ' + e.message);
                 }
                 setLoading(false);
             };
