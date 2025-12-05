@@ -291,24 +291,31 @@ async def get_shopping_list(db: Session = Depends(get_db)):
     return items
 
 
+class ShoppingGenerateRequest(BaseModel):
+    dates: list[str] = []  # List of date strings (YYYY-MM-DD)
+
+
 @router.post("/shopping/generate")
 async def generate_shopping_list(
-    start_date: Optional[date] = None,
+    request: ShoppingGenerateRequest = None,
     db: Session = Depends(get_db)
 ):
-    """Generate shopping list from meal plan"""
+    """Generate shopping list from meal plan for specific dates"""
     
-    if not start_date:
+    # If no dates provided, use current and next week
+    if not request or not request.dates:
         today = date.today()
-        start_date = today - timedelta(days=today.weekday())
-    
-    end_date = start_date + timedelta(days=6)
-    
-    # Get all meals for the week
-    plans = db.query(MealPlan).filter(
-        MealPlan.date >= start_date,
-        MealPlan.date <= end_date
-    ).all()
+        start_date = today - timedelta(days=today.weekday())  # Monday
+        end_date = start_date + timedelta(days=13)  # Two weeks
+        
+        plans = db.query(MealPlan).filter(
+            MealPlan.date >= start_date,
+            MealPlan.date <= end_date
+        ).all()
+    else:
+        # Convert string dates to date objects
+        date_objects = [date.fromisoformat(d) for d in request.dates]
+        plans = db.query(MealPlan).filter(MealPlan.date.in_(date_objects)).all()
     
     # Collect all ingredients
     all_ingredients = set()
