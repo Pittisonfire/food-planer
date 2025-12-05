@@ -21,8 +21,8 @@ class RecipeSearch(BaseModel):
     offset: int = 0  # For "load more" pagination
 
 
-class InstagramImport(BaseModel):
-    url: str
+class RecipeTextImport(BaseModel):
+    text: str  # Raw recipe text to parse
 
 
 class MealPlanCreate(BaseModel):
@@ -79,19 +79,19 @@ async def search_recipes(search: RecipeSearch, db: Session = Depends(get_db)):
 
 
 @router.post("/recipes/instagram")
-async def import_from_instagram(data: InstagramImport, db: Session = Depends(get_db)):
-    """Import recipe from Instagram URL"""
+async def import_from_text(data: RecipeTextImport, db: Session = Depends(get_db)):
+    """Import recipe from pasted text (Instagram, etc.)"""
     
-    recipe_data = await claude_ai.parse_instagram_recipe(data.url)
+    recipe_data = await claude_ai.parse_recipe_text(data.text)
     
     if not recipe_data:
-        raise HTTPException(status_code=400, detail="Konnte Rezept nicht aus Instagram extrahieren")
+        raise HTTPException(status_code=400, detail="Konnte Rezept nicht aus Text extrahieren")
     
     # Save to database
     recipe = Recipe(
         external_id=recipe_data.get("external_id"),
-        source=recipe_data.get("source", "instagram"),
-        title=recipe_data.get("title", "Instagram Rezept"),
+        source=recipe_data.get("source", "import"),
+        title=recipe_data.get("title", "Importiertes Rezept"),
         image_url=recipe_data.get("image_url"),
         calories=recipe_data.get("calories"),
         ready_in_minutes=recipe_data.get("ready_in_minutes"),
