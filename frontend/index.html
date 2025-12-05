@@ -248,14 +248,15 @@
                     const res = await fetch(`${API_BASE}/recipes/instagram`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ url: instagramUrl })
+                        body: JSON.stringify({ text: instagramUrl })
                     });
                     const data = await res.json();
                     if (data.id) {
                         setSavedRecipes(prev => [data, ...prev]);
-                        setSelectedRecipe(data);
+                        setRecipeModal(data);
                         setInstagramUrl('');
-                        alert('Rezept erfolgreich importiert!');
+                    } else {
+                        alert('Fehler: ' + (data.detail || 'Konnte Rezept nicht erstellen'));
                     }
                 } catch (e) { 
                     console.error(e);
@@ -522,20 +523,25 @@
                                         )}
                                     </div>
 
-                                    {/* Instagram Import */}
+                                    {/* Instagram / Text Import */}
                                     <div className="bg-white rounded-xl p-4 shadow-sm">
                                         <h3 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                                            <Icons.Instagram /> Instagram Import
+                                            <Icons.Instagram /> Rezept importieren
                                         </h3>
-                                        <div className="flex gap-2">
-                                            <input type="text" placeholder="Instagram Post URL einfügen..."
-                                                value={instagramUrl} onChange={(e) => setInstagramUrl(e.target.value)}
-                                                className="flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-pink-500" />
-                                            <button onClick={importFromInstagram} disabled={loading || !instagramUrl}
-                                                className="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:opacity-90 disabled:opacity-50">
-                                                {loading ? '...' : 'Importieren'}
-                                            </button>
-                                        </div>
+                                        <p className="text-xs text-gray-500 mb-3">
+                                            Kopiere den Rezept-Text aus Instagram (oder woanders) und füge ihn hier ein:
+                                        </p>
+                                        <textarea
+                                            placeholder="Rezept-Text hier einfügen... (z.B. Zutaten und Zubereitung aus Instagram)"
+                                            value={instagramUrl}
+                                            onChange={(e) => setInstagramUrl(e.target.value)}
+                                            rows={4}
+                                            className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-pink-500 text-sm"
+                                        />
+                                        <button onClick={importFromInstagram} disabled={loading || !instagramUrl}
+                                            className="w-full mt-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:opacity-90 disabled:opacity-50">
+                                            {loading ? 'Wird analysiert...' : 'Rezept erstellen'}
+                                        </button>
                                     </div>
 
                                     {/* Recipe Results */}
