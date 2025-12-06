@@ -113,10 +113,19 @@
             const RecipeModal = ({ recipe, onClose }) => {
                 if (!recipe) return null;
                 
+                const [selectedMealType, setSelectedMealType] = React.useState('lunch');
+                
                 const handleAddToDay = async (date) => {
-                    await addToMealPlan(recipe, date);
+                    await addToMealPlan(recipe, date, selectedMealType);
                     onClose();
                 };
+                
+                const mealTypes = [
+                    { type: 'breakfast', name: 'Frühstück', icon: '🌅' },
+                    { type: 'lunch', name: 'Mittag', icon: '☀️' },
+                    { type: 'dinner', name: 'Abend', icon: '🌙' },
+                    { type: 'snack', name: 'Snack', icon: '🍎' }
+                ];
                 
                 return (
                     <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4" onClick={onClose}>
@@ -162,7 +171,22 @@
                             
                             {/* Quick Add Buttons - Two Weeks */}
                             <div className="p-4 border-b bg-blue-50">
-                                <p className="text-sm text-gray-600 mb-3 font-medium">Zum Wochenplan hinzufügen:</p>
+                                <p className="text-sm text-gray-600 mb-2 font-medium">Mahlzeit:</p>
+                                <div className="flex gap-2 mb-4">
+                                    {mealTypes.map(({ type, name, icon }) => (
+                                        <button key={type}
+                                            onClick={() => setSelectedMealType(type)}
+                                            className={`flex-1 py-2 px-2 rounded-lg text-xs font-medium transition ${
+                                                selectedMealType === type 
+                                                    ? 'bg-blue-500 text-white' 
+                                                    : 'bg-white text-gray-600 hover:bg-blue-100'
+                                            }`}>
+                                            {icon} {name}
+                                        </button>
+                                    ))}
+                                </div>
+                                
+                                <p className="text-sm text-gray-600 mb-2 font-medium">Tag auswählen:</p>
                                 {twoWeeks.map((week, idx) => {
                                     const today = new Date().toISOString().split('T')[0];
                                     return (
@@ -393,7 +417,7 @@
                 } catch (e) { console.error(e); }
             };
 
-            const addToMealPlan = async (recipe, dateStr) => {
+            const addToMealPlan = async (recipe, dateStr, mealType = 'lunch') => {
                 // First save the recipe
                 const savedRecipe = await saveRecipe(recipe);
                 if (!savedRecipe) return;
@@ -405,7 +429,7 @@
                         body: JSON.stringify({
                             recipe_id: savedRecipe.id,
                             date: dateStr,
-                            meal_type: 'main'
+                            meal_type: mealType
                         })
                     });
                     await loadMealPlan();
@@ -848,36 +872,48 @@
                                                         </div>
                                                     )}
                                                     
-                                                    <div className="p-2 space-y-2">
-                                                        {mealPlan.filter(p => p.date === date).map(meal => (
-                                                            <div key={meal.id} draggable onDragStart={(e) => handleDragStart(e, meal)}
-                                                                onClick={() => setRecipeModal(meal.recipe)}
-                                                                className="bg-gradient-to-r from-orange-50 to-yellow-50 rounded-lg p-3 cursor-pointer active:cursor-grabbing border border-orange-100 hover:shadow-md transition group">
-                                                                <div className="flex items-center gap-3">
-                                                                    <div className="text-gray-300 cursor-grab hidden lg:block"><Icons.Grip /></div>
-                                                                    {meal.recipe?.image_url && (
-                                                                        <img src={meal.recipe.image_url} alt="" className="w-16 h-16 lg:w-full lg:h-20 object-cover rounded flex-shrink-0 lg:hidden" />
-                                                                    )}
-                                                                    <div className="flex-1 min-w-0">
-                                                                        {meal.recipe?.image_url && (
-                                                                            <img src={meal.recipe.image_url} alt="" className="w-full h-20 object-cover rounded mb-2 hidden lg:block" />
-                                                                        )}
-                                                                        <p className="text-sm font-medium text-gray-700 line-clamp-2">{meal.recipe?.title}</p>
-                                                                        <p className="text-xs text-gray-500 mt-1">{meal.recipe?.calories || '?'} kcal</p>
+                                                    <div className="p-2 space-y-1">
+                                                        {/* Meal Sections */}
+                                                        {[
+                                                            { type: 'breakfast', name: 'Frühstück', icon: '🌅', color: 'orange' },
+                                                            { type: 'lunch', name: 'Mittag', icon: '☀️', color: 'yellow' },
+                                                            { type: 'dinner', name: 'Abend', icon: '🌙', color: 'indigo' },
+                                                            { type: 'snack', name: 'Snacks', icon: '🍎', color: 'green' }
+                                                        ].map(({ type, name, icon, color }) => {
+                                                            const mealsOfType = mealPlan.filter(p => p.date === date && p.meal_type === type);
+                                                            return (
+                                                                <div key={type} className="mb-2">
+                                                                    <div className={`text-xs font-medium text-${color}-600 flex items-center gap-1 mb-1 px-1`}>
+                                                                        <span>{icon}</span> {name}
                                                                     </div>
-                                                                    <button onClick={(e) => { e.stopPropagation(); removeFromMealPlan(meal.id); }}
-                                                                        className="text-red-400 hover:text-red-600 transition p-1 flex-shrink-0">
-                                                                        <Icons.X />
-                                                                    </button>
+                                                                    {mealsOfType.length > 0 ? (
+                                                                        <div className="space-y-1">
+                                                                            {mealsOfType.map(meal => (
+                                                                                <div key={meal.id} draggable onDragStart={(e) => handleDragStart(e, meal)}
+                                                                                    onClick={() => setRecipeModal(meal.recipe)}
+                                                                                    className={`bg-gradient-to-r from-${color}-50 to-${color}-100 rounded-lg p-2 cursor-pointer border border-${color}-200 hover:shadow-md transition`}>
+                                                                                    <div className="flex items-center gap-2">
+                                                                                        {meal.recipe?.image_url && (
+                                                                                            <img src={meal.recipe.image_url} alt="" className="w-10 h-10 object-cover rounded flex-shrink-0" />
+                                                                                        )}
+                                                                                        <div className="flex-1 min-w-0">
+                                                                                            <p className="text-xs font-medium text-gray-700 line-clamp-1">{meal.recipe?.title}</p>
+                                                                                            <p className="text-xs text-gray-400">{meal.recipe?.calories || '?'} kcal</p>
+                                                                                        </div>
+                                                                                        <button onClick={(e) => { e.stopPropagation(); removeFromMealPlan(meal.id); }}
+                                                                                            className="text-red-400 hover:text-red-600 p-1">
+                                                                                            <Icons.X />
+                                                                                        </button>
+                                                                                    </div>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div className="text-center py-1 text-gray-200 text-xs">-</div>
+                                                                    )}
                                                                 </div>
-                                                            </div>
-                                                        ))}
-                                                        
-                                                        {mealPlan.filter(p => p.date === date).length === 0 && !dayNote && (
-                                                            <div className="text-center py-4 lg:py-8 text-gray-300 text-sm">
-                                                                Noch keine Rezepte
-                                                            </div>
-                                                        )}
+                                                            );
+                                                        })}
                                                         
                                                         {/* Add Note Button */}
                                                         {!isPast && !dayNote && (
