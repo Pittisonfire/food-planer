@@ -139,12 +139,21 @@
                                     <div key={week.weekNum} className={idx > 0 ? 'mt-3' : ''}>
                                         <div className="text-xs text-blue-600 font-semibold mb-1">KW {week.weekNum}</div>
                                         <div className="grid grid-cols-7 gap-1">
-                                            {week.days.map(({ day, date, shortDay }) => (
-                                                <button key={date} onClick={() => handleAddToDay(date)}
-                                                    className="py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 text-xs font-medium">
-                                                    {shortDay}
-                                                </button>
-                                            ))}
+                                            {week.days.map(({ day, date, shortDay }) => {
+                                                const isPast = new Date(date) < new Date(new Date().toISOString().split('T')[0]);
+                                                return (
+                                                    <button key={date} 
+                                                        onClick={() => !isPast && handleAddToDay(date)}
+                                                        disabled={isPast}
+                                                        className={`py-2 rounded-lg text-xs font-medium ${
+                                                            isPast 
+                                                                ? 'bg-gray-200 text-gray-400 cursor-not-allowed' 
+                                                                : 'bg-blue-500 text-white hover:bg-blue-600'
+                                                        }`}>
+                                                        {shortDay}
+                                                    </button>
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 ))}
@@ -649,12 +658,21 @@
                                                         <span className="flex items-center gap-1"><Icons.Clock /> {recipe.ready_in_minutes || '?'} Min</span>
                                                     </div>
                                                     <div className="flex gap-1 mt-3">
-                                                        {weekDates.slice(0, 4).map(({ day, date }) => (
-                                                            <button key={day} onClick={(e) => { e.stopPropagation(); addToMealPlan(recipe, date); }}
-                                                                className="px-2 py-1 text-xs bg-blue-100 text-blue-600 rounded hover:bg-blue-200">
-                                                                +{day.slice(0, 2)}
-                                                            </button>
-                                                        ))}
+                                                        {weekDates.slice(0, 4).map(({ day, date }) => {
+                                                            const isPast = new Date(date) < new Date(new Date().toISOString().split('T')[0]);
+                                                            return (
+                                                                <button key={day} 
+                                                                    onClick={(e) => { e.stopPropagation(); if (!isPast) addToMealPlan(recipe, date); }}
+                                                                    disabled={isPast}
+                                                                    className={`px-2 py-1 text-xs rounded ${
+                                                                        isPast 
+                                                                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
+                                                                            : 'bg-blue-100 text-blue-600 hover:bg-blue-200'
+                                                                    }`}>
+                                                                    +{day.slice(0, 2)}
+                                                                </button>
+                                                            );
+                                                        })}
                                                     </div>
                                                 </div>
                                             </div>
