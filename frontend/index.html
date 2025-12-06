@@ -64,6 +64,7 @@
             const [shoppingFilter, setShoppingFilter] = React.useState('all'); // 'all', 'kw49', 'kw50', 'custom'
             const [selectedDays, setSelectedDays] = React.useState([]);  // For custom day selection
             const [dayNotes, setDayNotes] = React.useState([]);  // Array of {id, date, mealType, text}
+            const [noteModal, setNoteModal] = React.useState(null);  // {date: '2024-12-06'} when open
 
             // Day notes functions - now supports multiple notes per section
             const addDayNote = (date, mealType, note) => {
@@ -276,6 +277,63 @@
                                     Schließen
                                 </button>
                             </div>
+                        </div>
+                    </div>
+                );
+            };
+
+            // Note Modal Component
+            const NoteModal = ({ date, onClose }) => {
+                const [noteText, setNoteText] = React.useState('');
+                
+                const handleSave = (mealType) => {
+                    if (noteText.trim()) {
+                        addDayNote(date, mealType, noteText.trim());
+                        onClose();
+                    }
+                };
+                
+                return (
+                    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+                        <div className="bg-white rounded-2xl max-w-sm w-full p-4" onClick={e => e.stopPropagation()}>
+                            <h3 className="text-lg font-bold text-gray-800 mb-4">Notiz hinzufügen</h3>
+                            
+                            <input
+                                type="text"
+                                placeholder="z.B. Restaurant, Auswärts, Reste..."
+                                value={noteText}
+                                onChange={(e) => setNoteText(e.target.value)}
+                                className="w-full px-4 py-3 border rounded-lg mb-4 focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                                autoFocus
+                            />
+                            
+                            <p className="text-sm text-gray-500 mb-2">Für welche Mahlzeit?</p>
+                            <div className="grid grid-cols-2 gap-2 mb-4">
+                                <button onClick={() => handleSave('breakfast')}
+                                    disabled={!noteText.trim()}
+                                    className="py-3 bg-orange-100 text-orange-700 rounded-lg font-medium hover:bg-orange-200 disabled:opacity-50 disabled:cursor-not-allowed">
+                                    Frühstück
+                                </button>
+                                <button onClick={() => handleSave('lunch')}
+                                    disabled={!noteText.trim()}
+                                    className="py-3 bg-yellow-100 text-yellow-700 rounded-lg font-medium hover:bg-yellow-200 disabled:opacity-50 disabled:cursor-not-allowed">
+                                    Mittag
+                                </button>
+                                <button onClick={() => handleSave('dinner')}
+                                    disabled={!noteText.trim()}
+                                    className="py-3 bg-indigo-100 text-indigo-700 rounded-lg font-medium hover:bg-indigo-200 disabled:opacity-50 disabled:cursor-not-allowed">
+                                    Abend
+                                </button>
+                                <button onClick={() => handleSave('snack')}
+                                    disabled={!noteText.trim()}
+                                    className="py-3 bg-green-100 text-green-700 rounded-lg font-medium hover:bg-green-200 disabled:opacity-50 disabled:cursor-not-allowed">
+                                    Snacks
+                                </button>
+                            </div>
+                            
+                            <button onClick={onClose} className="w-full py-2 text-gray-500 hover:text-gray-700">
+                                Abbrechen
+                            </button>
                         </div>
                     </div>
                 );
@@ -964,15 +1022,7 @@
                                                         {/* Single Add Note Button at bottom */}
                                                         {!isPast && (
                                                             <div className="py-2 px-3">
-                                                                <button onClick={() => {
-                                                                    const section = prompt('Für welche Mahlzeit? (1=Frühstück, 2=Mittag, 3=Abend, 4=Snacks)');
-                                                                    if (!section) return;
-                                                                    const types = { '1': 'breakfast', '2': 'lunch', '3': 'dinner', '4': 'snack' };
-                                                                    const mealType = types[section];
-                                                                    if (!mealType) { alert('Bitte 1-4 eingeben'); return; }
-                                                                    const note = prompt('Notiz:');
-                                                                    if (note) addDayNote(date, mealType, note);
-                                                                }}
+                                                                <button onClick={() => setNoteModal({ date })}
                                                                     className="w-full py-2 text-xs text-gray-400 hover:text-purple-500 hover:bg-purple-50 rounded-lg transition">
                                                                     + Notiz
                                                                 </button>
@@ -1169,6 +1219,9 @@
 
                     {/* Recipe Detail Modal */}
                     {recipeModal && <RecipeModal recipe={recipeModal} onClose={() => setRecipeModal(null)} />}
+                    
+                    {/* Note Modal */}
+                    {noteModal && <NoteModal date={noteModal.date} onClose={() => setNoteModal(null)} />}
                 </div>
             );
         }
