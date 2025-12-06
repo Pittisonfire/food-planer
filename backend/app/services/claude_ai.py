@@ -429,4 +429,224 @@ Antworte NUR mit dem JSON:"""
         return None
 
 
+async def analyze_taste_profile(favorite_recipes: list[dict], cooked_recipes: list[dict]) -> dict:
+    """Analyze user's taste preferences from their recipe history"""
+    
+    client = get_claude_client()
+    
+    # Prepare recipe summaries
+    fav_summaries = []
+    for r in favorite_recipes[:20]:  # Limit to recent 20
+        fav_summaries.append(f"- {r.get('title', 'Unknown')} (Zutaten: {', '.join(r.get('ingredients', [])[:5])})")
+    
+    cooked_summaries = []
+    for r in cooked_recipes[:30]:  # Limit to recent 30
+        cooked_summaries.append(f"- {r.get('title', 'Unknown')}")
+    
+    prompt = f"""Analysiere die Essgewohnheiten des Nutzers basierend auf seinen Rezepten.
 
+FAVORISIERTE REZEPTE:
+{chr(10).join(fav_summaries) if fav_summaries else "Keine Favoriten"}
+
+GEKOCHTE REZEPTE (letzten Wochen):
+{chr(10).join(cooked_summaries) if cooked_summaries else "Keine gekochten Rezepte"}
+
+Erstelle ein Geschmacksprofil. Identifiziere:
+1. Bevorzugte Küchen/Cuisines (italienisch, asiatisch, deutsch, etc.)
+2. Häufig verwendete Zutaten die der Nutzer mag
+3. Zutaten die NICHT vorkommen (mögliche Abneigungen)
+4. Zeitpräferenz (schnelle vs. aufwändige Rezepte)
+5. Ernährungsweise (viel Fleisch, vegetarisch tendierend, etc.)
+
+Antworte NUR mit einem JSON Objekt:
+{{
+    "favorite_cuisines": ["italienisch", "asiatisch"],
+    "favorite_ingredients": ["Pasta", "Hähnchen", "Reis", "Paprika"],
+    "possible_dislikes": ["Fisch", "Meeresfrüchte"],
+    "time_preference": "schnell",
+    "diet_tendency": "flexitarisch",
+    "summary": "Kurze Beschreibung des Geschmacksprofils in 1-2 Sätzen"
+}}
+
+Antworte NUR mit dem JSON:"""
+
+    try:
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1000,
+            messages=[
+                {"role": "user", "content": prompt}
+            ]
+        )
+        
+        response_text = message.content[0].text.strip()
+        
+        json_match = re.search(r'\{[\s\S]*\}', response_text)
+        if json_match:
+            profile = json.loads(json_match.group())
+        else:
+            profile = json.loads(response_text)
+        
+        return profile
+        
+    except Exception as e:
+        print(f"Taste profile analysis error: {e}")
+        return {
+            "favorite_cuisines": [],
+            "favorite_ingredients": [],
+            "possible_dislikes": [],
+            "time_preference": "mittel",
+            "diet_tendency": "flexitarisch",
+            "summary": "Noch nicht genug Daten für ein Profil"
+        }
+
+
+async def generate_week_plan(
+    taste_profile: dict,
+    days: int = 7,
+    existing_plan: list[dict] = None,
+    pantry_items: list[str] = None
+) -> list[dict]:
+    """Generate a full week of recipes based on taste profile"""
+    
+    client = get_claude_client()
+    
+    # Build context from taste profile
+    profile_parts = []
+    
+    if taste_profile.get("favorite_cuisines"):
+        profile_parts.append(f"Bevorzugte Küchen: {', '.join(taste_profile['favorite_cuisines'])}")
+    
+    if taste_profile.get("favorite_ingredients"):
+        profile_parts.append(f"Lieblingszutaten: {', '.join(taste_profile['favorite_ingredients'])}")
+    
+    if taste_profile.get("possible_dislikes"):
+        profile_parts.append(f"MEIDEN: {', '.join(taste_profile['possible_dislikes'])}")
+    
+    if taste_profile.get("time_preference"):
+        time_map = {"schnell": "unter 30 Minuten", "mittel": "30-45 Minuten", "aufwändig": "auch länger"}
+        profile_parts.append(f"Zeit: {time_map.get(taste_profile['time_preference'], 'flexibel')}")
+    
+    if taste_profile.get("diet_tendency"):
+        profile_parts.append(f"Ernährung: {taste_profile['diet_tendency']}")
+    
+    profile_context = "\n".join(profile_parts) if profile_parts else "Keine besonderen Präferenzen"
+    
+    # Existing plan context
+    existing_context = ""
+    if existing_plan:
+        titles = [r.get('title', '') for r in existing_plan if r.get('title')]
+        if titles:
+            existing_context = f"\nBereits geplant (NICHT wiederholen): {', '.join(titles[:10])}"
+    
+    # Pantry context
+    pantry_context = ""
+    if pantry_items:
+        pantry_context = f"\nVerfügbare Zutaten im Vorrat: {', '.join(pantry_items[:15])}"
+    
+    prompt = f"""Erstelle einen Essensplan für {days} Tage basierend auf diesem Geschmacksprofil:
+
+GESCHMACKSPROFIL:
+{profile_context}
+{existing_context}
+{pantry_context}
+
+Erstelle {days} abwechslungsreiche Rezepte. Achte auf:
+- Abwechslung (nicht 2x das gleiche)
+- Mix aus schnellen und aufwändigeren Gerichten
+- Gute Balance aus Gemüse, Protein, Kohlenhydraten
+- Berücksichtige die Vorlieben und Abneigungen!
+
+Antworte NUR mit einem JSON Array von {days} Rezepten:
+[
+    {{
+        "title": "Name des Gerichts",
+        "calories": 450,
+        "ready_in_minutes": 30,
+        "servings": 2,
+        "ingredients": ["200g Zutat 1", "100g Zutat 2"],
+        "instructions": ["Schritt 1", "Schritt 2"],
+        "tags": ["schnell", "italienisch"],
+        "taste_score": 95
+    }},
+    ...
+]
+
+Der taste_score zeigt wie gut das Rezept zum Profil passt (0-100).
+Antworte NUR mit dem JSON Array:"""
+
+    try:
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=6000,
+            messages=[
+                {"role": "user", "content": prompt}
+            ]
+        )
+        
+        response_text = message.content[0].text.strip()
+        
+        json_match = re.search(r'\[[\s\S]*\]', response_text)
+        if json_match:
+            recipes = json.loads(json_match.group())
+        else:
+            recipes = json.loads(response_text)
+        
+        # Add metadata
+        for recipe in recipes:
+            recipe["source"] = "claude"
+            recipe["external_id"] = None
+            recipe["image_url"] = None
+            recipe["source_url"] = None
+        
+        return recipes
+        
+    except Exception as e:
+        print(f"Week plan generation error: {e}")
+        return []
+
+
+async def calculate_taste_score(recipe: dict, taste_profile: dict) -> int:
+    """Calculate how well a recipe matches the user's taste profile"""
+    
+    client = get_claude_client()
+    
+    prompt = f"""Bewerte wie gut dieses Rezept zum Geschmacksprofil passt.
+
+REZEPT:
+Titel: {recipe.get('title', 'Unknown')}
+Zutaten: {', '.join(recipe.get('ingredients', [])[:10])}
+Zeit: {recipe.get('ready_in_minutes', '?')} Minuten
+
+GESCHMACKSPROFIL:
+Bevorzugte Küchen: {', '.join(taste_profile.get('favorite_cuisines', []))}
+Lieblingszutaten: {', '.join(taste_profile.get('favorite_ingredients', []))}
+Meiden: {', '.join(taste_profile.get('possible_dislikes', []))}
+Zeitpräferenz: {taste_profile.get('time_preference', 'flexibel')}
+Ernährung: {taste_profile.get('diet_tendency', 'flexibel')}
+
+Gib einen Score von 0-100 zurück.
+- 90-100: Perfekt passend
+- 70-89: Gut passend
+- 50-69: Okay
+- 30-49: Weniger passend
+- 0-29: Passt nicht zum Profil
+
+Antworte NUR mit einer Zahl (0-100):"""
+
+    try:
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=10,
+            messages=[
+                {"role": "user", "content": prompt}
+            ]
+        )
+        
+        response_text = message.content[0].text.strip()
+        score = int(re.search(r'\d+', response_text).group())
+        return min(100, max(0, score))
+        
+    except Exception as e:
+        print(f"Taste score calculation error: {e}")
+        return 50  # Default neutral score
