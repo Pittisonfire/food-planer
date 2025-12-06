@@ -464,6 +464,8 @@
                 try {
                     await fetch(`${API_BASE}/mealplan/${planId}`, { method: 'DELETE' });
                     setMealPlan(prev => prev.filter(p => p.id !== planId));
+                    // Regenerate shopping list with current filter
+                    await generateShoppingList(shoppingFilter, selectedDays);
                 } catch (e) { console.error(e); }
             };
 
@@ -895,7 +897,10 @@
                                                             { type: 'dinner', name: 'Abend' },
                                                             { type: 'snack', name: 'Snacks' }
                                                         ].map(({ type, name }) => {
-                                                            const mealsOfType = mealPlan.filter(p => p.date === date && p.meal_type === type);
+                                                            // Include 'main' as 'lunch' for backwards compatibility
+                                                            const mealsOfType = mealPlan.filter(p => p.date === date && (
+                                                                p.meal_type === type || (type === 'lunch' && p.meal_type === 'main')
+                                                            ));
                                                             const sectionNotes = getNotesForSection(date, type);
                                                             const otherTypes = [
                                                                 { type: 'breakfast', name: 'F' },
