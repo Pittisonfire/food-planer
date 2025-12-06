@@ -277,6 +277,23 @@ async def move_meal(plan_id: int, data: MealPlanMove, db: Session = Depends(get_
     return {"status": "moved", "new_date": data.new_date.isoformat()}
 
 
+class MealTypeChange(BaseModel):
+    meal_type: str
+
+
+@router.put("/mealplan/{plan_id}/type")
+async def change_meal_type(plan_id: int, data: MealTypeChange, db: Session = Depends(get_db)):
+    """Change meal type (breakfast, lunch, dinner, snack)"""
+    plan = db.query(MealPlan).filter(MealPlan.id == plan_id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Eintrag nicht gefunden")
+    
+    plan.meal_type = data.meal_type
+    db.commit()
+    
+    return {"status": "updated", "meal_type": data.meal_type}
+
+
 @router.delete("/mealplan/{plan_id}")
 async def remove_from_meal_plan(plan_id: int, db: Session = Depends(get_db)):
     """Remove from meal plan"""
