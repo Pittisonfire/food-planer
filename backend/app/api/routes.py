@@ -5,7 +5,7 @@ from typing import Optional
 from datetime import date, timedelta
 
 from app.core.database import get_db
-from app.models.models import PantryItem, Recipe, MealPlan, ShoppingItem, TasteProfile
+from app.models.models import PantryItem, Recipe, MealPlan, ShoppingItem, TasteProfile, RecurringMeal
 from app.services import claude_ai
 
 router = APIRouter()
@@ -566,3 +566,103 @@ async def auto_generate_mealplan(request: AutoPlanRequest, db: Session = Depends
         "plans": created_plans,
         "profile_used": profile_data
     }
+
+
+# ============ Recurring Meals Endpoints ============
+
+class RecurringMealCreate(BaseModel):
+    weekday: int  # 0=Monday, 6=Sunday
+    meal_type: str = "dinner"
+    recipe_id: Optional[int] = None
+    title: Optional[str] = None
+
+
+@router.get("/recurring-meals")
+async def get_recurring_meals(db: Session = Depends(get_db)):
+    """Get all recurring meal rules"""
+    meals = db.query(RecurringMeal).order_by(RecurringMeal.weekday).all()
+    result = []
+    for meal in meals:
+        recipe = None
+        if meal.recipe_id:
+            recipe = db.query(Recipe).filter(Recipe.id == meal.recipe_id).first()
+        result.append({
+            "id": meal.id,
+            "weekday": meal.weekday,
+            "meal_type": meal.meal_type,
+            "recipe_id": meal.recipe_id,
+            "title": meal.title or (recipe.title if recipe else None),
+            "recipe": {
+                "id": recipe.id,
+                "title": recipe.title,
+                "image_url": recipe.image_url
+            } if recipe else None
+        })
+    return result
+
+
+@router.post("/recurring-meals")
+async def create_recurring_meal(data: RecurringMealCreate, db: Session = Depends(get_db)):
+    """Create a new recurring meal rule"""
+    meal = RecurringMeal(
+        weekday=data.weekday,
+        meal_type=data.meal_type,
+        recipe_id=data.recipe_id,
+        title=data.title
+    )
+    db.add(meal)
+    db.commit()
+    db.refresh(meal)
+    return meal
+
+
+@router.delete("/recurring-meals/{meal_id}")
+async def delete_recurring_meal(meal_id: int, db: Session = Depends(get_db)):
+    """Delete a recurring meal rule"""
+    meal = db.query(RecurringMeal).filter(RecurringMeal.id == meal_id).first()
+    if meal:
+        db.delete(meal)
+        db.commit()
+    return {"status": "deleted"}
+
+
+@router.post("/recurring-meals/apply")
+async def apply_recurring_meals(db: Session = Depends(get_db)):
+    """Apply recurring meal rules to current and next week"""
+    recurring = db.query(RecurringMeal).all()
+    if not recurring:
+        return {"status": "no_rules", "applied": 0}
+    
+    today = date.today()
+    monday = today - timedelta(days=today.weekday())
+    
+    applied = 0
+    for week_offset in [0, 1]:  # This week and next week
+        for rule in recurring:
+            target_date = monday + timedelta(days=week_offset * 7 + rule.weekday)
+            
+            # Skip past dates
+            if target_date < today:
+                continue
+            
+            # Check if there's already a meal for this date/type
+            existing = db.query(MealPlan).filter(
+                MealPlan.date == target_date,
+                MealPlan.meal_type == rule.meal_type
+            ).first()
+            
+            if existing:
+                continue
+            
+            # If rule has a recipe, add it
+            if rule.recipe_id:
+                plan = MealPlan(
+                    recipe_id=rule.recipe_id,
+                    date=target_date,
+                    meal_type=rule.meal_type
+                )
+                db.add(plan)
+                applied += 1
+    
+    db.commit()
+    return {"status": "applied", "applied": applied}
