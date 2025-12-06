@@ -63,6 +63,34 @@
             const [recipeModal, setRecipeModal] = React.useState(null);  // For showing recipe details
             const [shoppingFilter, setShoppingFilter] = React.useState('all'); // 'all', 'kw49', 'kw50', 'custom'
             const [selectedDays, setSelectedDays] = React.useState([]);  // For custom day selection
+            const [dayNotes, setDayNotes] = React.useState({});  // For day blockers/notes like "Restaurant"
+
+            // Day notes functions
+            const addDayNote = (date, note) => {
+                setDayNotes(prev => ({ ...prev, [date]: note }));
+                // Also save to localStorage for persistence
+                const notes = JSON.parse(localStorage.getItem('dayNotes') || '{}');
+                notes[date] = note;
+                localStorage.setItem('dayNotes', JSON.stringify(notes));
+            };
+            
+            const removeDayNote = (date) => {
+                setDayNotes(prev => {
+                    const updated = { ...prev };
+                    delete updated[date];
+                    return updated;
+                });
+                // Update localStorage
+                const notes = JSON.parse(localStorage.getItem('dayNotes') || '{}');
+                delete notes[date];
+                localStorage.setItem('dayNotes', JSON.stringify(notes));
+            };
+            
+            // Load dayNotes from localStorage on mount
+            React.useEffect(() => {
+                const notes = JSON.parse(localStorage.getItem('dayNotes') || '{}');
+                setDayNotes(notes);
+            }, []);
 
             // Toggle favorite function
             const toggleFavorite = async (recipeId, e) => {
@@ -760,10 +788,19 @@
                                 </div>
                                 
                                 {/* Two weeks display */}
-                                {twoWeeks.map((week, weekIdx) => (
+                                {twoWeeks.map((week, weekIdx) => {
+                                    const today = new Date().toISOString().split('T')[0];
+                                    // Filter days: on mobile only show today and future, on desktop show all
+                                    const visibleDays = week.days.filter(({ date }) => {
+                                        // Always show on desktop (handled by CSS), filter for mobile
+                                        return date >= today;
+                                    });
+                                    const hasVisibleDays = visibleDays.length > 0;
+                                    
+                                    return (
                                     <div key={week.weekNum} className={weekIdx > 0 ? 'mt-6' : ''}>
-                                        {/* Week header */}
-                                        <div className="flex items-center gap-2 mb-3">
+                                        {/* Week header - hide on mobile if no visible days */}
+                                        <div className={`flex items-center gap-2 mb-3 ${!hasVisibleDays ? 'hidden lg:flex' : ''}`}>
                                             <span className="bg-blue-500 text-white px-3 py-1 rounded-full text-sm font-bold">
                                                 KW {week.weekNum}
                                             </span>
@@ -774,9 +811,13 @@
                                         
                                         {/* Mobile: vertical stack, Desktop: 7-column grid */}
                                         <div className="flex flex-col lg:grid lg:grid-cols-7 gap-3">
-                                            {week.days.map(({ day, date }) => (
+                                            {week.days.map(({ day, date }) => {
+                                                const isPast = date < today;
+                                                const dayNote = dayNotes[date];
+                                                
+                                                return (
                                                 <div key={date} 
-                                                    className="bg-white rounded-xl shadow-sm lg:min-h-[280px] transition-colors"
+                                                    className={`bg-white rounded-xl shadow-sm lg:min-h-[280px] transition-colors ${isPast ? 'hidden lg:block lg:opacity-50' : ''}`}
                                                     onDragOver={handleDragOver}
                                                     onDragLeave={handleDragLeave}
                                                     onDrop={(e) => handleDrop(e, date)}>
@@ -796,6 +837,16 @@
                                                             </div>
                                                         </div>
                                                     </div>
+                                                    
+                                                    {/* Day Note / Blocker */}
+                                                    {dayNote && (
+                                                        <div className="mx-2 mt-2 p-2 bg-purple-100 rounded-lg flex items-center justify-between">
+                                                            <span className="text-sm text-purple-700">{dayNote}</span>
+                                                            <button onClick={() => removeDayNote(date)} className="text-purple-400 hover:text-purple-600">
+                                                                <Icons.X />
+                                                            </button>
+                                                        </div>
+                                                    )}
                                                     
                                                     <div className="p-2 space-y-2">
                                                         {mealPlan.filter(p => p.date === date).map(meal => (
@@ -822,17 +873,30 @@
                                                             </div>
                                                         ))}
                                                         
-                                                        {mealPlan.filter(p => p.date === date).length === 0 && (
+                                                        {mealPlan.filter(p => p.date === date).length === 0 && !dayNote && (
                                                             <div className="text-center py-4 lg:py-8 text-gray-300 text-sm">
                                                                 Noch keine Rezepte
                                                             </div>
                                                         )}
+                                                        
+                                                        {/* Add Note Button */}
+                                                        {!isPast && !dayNote && (
+                                                            <button onClick={() => {
+                                                                const note = prompt('Notiz für diesen Tag (z.B. "Restaurant", "Auswärts"):');
+                                                                if (note) addDayNote(date, note);
+                                                            }}
+                                                                className="w-full mt-2 py-2 text-xs text-gray-400 hover:text-purple-500 hover:bg-purple-50 rounded-lg transition flex items-center justify-center gap-1">
+                                                                <Icons.Plus /> Notiz
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 </div>
-                                            ))}
+                                                );
+                                            })}
                                         </div>
                                     </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         )}
 
