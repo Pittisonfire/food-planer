@@ -67,6 +67,8 @@
             const [noteModal, setNoteModal] = React.useState(null);  // {date: '2024-12-06'} when open
             const [tasteProfile, setTasteProfile] = React.useState(null);  // AI taste profile
             const [autoPlanning, setAutoPlanning] = React.useState(false);  // Auto-plan loading state
+            const [recurringMeals, setRecurringMeals] = React.useState([]);  // Recurring meal rules
+            const [showRecurringModal, setShowRecurringModal] = React.useState(false);  // Modal for adding recurring meals
 
             // Day notes functions - now supports multiple notes per section
             const addDayNote = (date, mealType, note) => {
@@ -369,6 +371,108 @@
                 );
             };
 
+            // Recurring Meal Modal Component
+            const RecurringMealModal = ({ onClose, savedRecipes }) => {
+                const [selectedDay, setSelectedDay] = React.useState(0);
+                const [selectedMealType, setSelectedMealType] = React.useState('dinner');
+                const [selectedRecipe, setSelectedRecipe] = React.useState(null);
+                const [customTitle, setCustomTitle] = React.useState('');
+                
+                const dayNames = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
+                const mealTypes = [
+                    { type: 'breakfast', name: 'Frühstück' },
+                    { type: 'lunch', name: 'Mittag' },
+                    { type: 'dinner', name: 'Abend' },
+                    { type: 'snack', name: 'Snack' }
+                ];
+                
+                const handleSave = async () => {
+                    if (selectedRecipe || customTitle.trim()) {
+                        await addRecurringMeal(
+                            selectedDay, 
+                            selectedMealType, 
+                            selectedRecipe?.id || null,
+                            customTitle.trim() || null
+                        );
+                        onClose();
+                    }
+                };
+                
+                return (
+                    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+                        <div className="bg-white rounded-2xl max-w-md w-full p-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                            <h3 className="text-lg font-bold text-gray-800 mb-4">Wiederkehrende Mahlzeit</h3>
+                            
+                            <p className="text-sm text-gray-500 mb-2">Wochentag:</p>
+                            <div className="grid grid-cols-7 gap-1 mb-4">
+                                {dayNames.map((day, idx) => (
+                                    <button key={idx}
+                                        onClick={() => setSelectedDay(idx)}
+                                        className={`py-2 rounded text-xs font-medium ${
+                                            selectedDay === idx 
+                                                ? 'bg-blue-500 text-white' 
+                                                : 'bg-gray-100 hover:bg-gray-200'
+                                        }`}>
+                                        {day.slice(0, 2)}
+                                    </button>
+                                ))}
+                            </div>
+                            
+                            <p className="text-sm text-gray-500 mb-2">Mahlzeit:</p>
+                            <div className="grid grid-cols-4 gap-1 mb-4">
+                                {mealTypes.map(({ type, name }) => (
+                                    <button key={type}
+                                        onClick={() => setSelectedMealType(type)}
+                                        className={`py-2 rounded text-xs font-medium ${
+                                            selectedMealType === type 
+                                                ? 'bg-blue-500 text-white' 
+                                                : 'bg-gray-100 hover:bg-gray-200'
+                                        }`}>
+                                        {name}
+                                    </button>
+                                ))}
+                            </div>
+                            
+                            <p className="text-sm text-gray-500 mb-2">Rezept auswählen (optional):</p>
+                            <div className="max-h-40 overflow-y-auto border rounded-lg mb-4">
+                                {savedRecipes.filter(r => r.is_favorite).map(recipe => (
+                                    <button key={recipe.id}
+                                        onClick={() => { setSelectedRecipe(recipe); setCustomTitle(''); }}
+                                        className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 border-b last:border-0 ${
+                                            selectedRecipe?.id === recipe.id ? 'bg-blue-50 text-blue-700' : ''
+                                        }`}>
+                                        {recipe.title}
+                                    </button>
+                                ))}
+                                {savedRecipes.filter(r => r.is_favorite).length === 0 && (
+                                    <p className="p-3 text-sm text-gray-400">Keine Favoriten vorhanden</p>
+                                )}
+                            </div>
+                            
+                            <p className="text-sm text-gray-500 mb-2">Oder freier Text:</p>
+                            <input
+                                type="text"
+                                placeholder="z.B. Pizza, Pasta, Salat..."
+                                value={customTitle}
+                                onChange={(e) => { setCustomTitle(e.target.value); setSelectedRecipe(null); }}
+                                className="w-full px-4 py-2 border rounded-lg mb-4"
+                            />
+                            
+                            <div className="flex gap-2">
+                                <button onClick={onClose} className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">
+                                    Abbrechen
+                                </button>
+                                <button onClick={handleSave}
+                                    disabled={!selectedRecipe && !customTitle.trim()}
+                                    className="flex-1 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50">
+                                    Speichern
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
             // Get calendar week number (ISO week)
             const getWeekNumber = (date) => {
                 const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
@@ -426,6 +530,7 @@
                 loadShoppingList();
                 loadPantry();
                 loadTasteProfile();
+                loadRecurringMeals();
             }, []);
 
             const loadSavedRecipes = async () => {
@@ -495,6 +600,44 @@
                     }
                 } catch (e) { console.error(e); }
                 setAutoPlanning(false);
+            };
+
+            // Recurring Meals Functions
+            const loadRecurringMeals = async () => {
+                try {
+                    const res = await fetch(`${API_BASE}/recurring-meals`);
+                    const data = await res.json();
+                    setRecurringMeals(data);
+                } catch (e) { console.error(e); }
+            };
+
+            const addRecurringMeal = async (weekday, mealType, recipeId, title) => {
+                try {
+                    await fetch(`${API_BASE}/recurring-meals`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ weekday, meal_type: mealType, recipe_id: recipeId, title })
+                    });
+                    await loadRecurringMeals();
+                } catch (e) { console.error(e); }
+            };
+
+            const deleteRecurringMeal = async (id) => {
+                try {
+                    await fetch(`${API_BASE}/recurring-meals/${id}`, { method: 'DELETE' });
+                    await loadRecurringMeals();
+                } catch (e) { console.error(e); }
+            };
+
+            const applyRecurringMeals = async () => {
+                try {
+                    const res = await fetch(`${API_BASE}/recurring-meals/apply`, { method: 'POST' });
+                    const data = await res.json();
+                    if (data.applied > 0) {
+                        await loadMealPlan();
+                    }
+                    return data.applied;
+                } catch (e) { console.error(e); return 0; }
             };
 
             const searchRecipes = async (loadMore = false) => {
@@ -1011,6 +1154,46 @@
                                     </div>
                                 )}
                                 
+                                {/* Recurring Meals Section */}
+                                {recurringMeals.length > 0 && (
+                                    <div className="mb-4 p-3 bg-gradient-to-r from-amber-50 to-orange-50 rounded-xl border border-amber-100">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <span className="text-amber-700 font-medium text-sm">Wiederkehrende Mahlzeiten</span>
+                                            <div className="flex gap-2">
+                                                <button onClick={async () => {
+                                                    const applied = await applyRecurringMeals();
+                                                    if (applied > 0) alert(`${applied} Mahlzeiten angewendet!`);
+                                                }}
+                                                    className="text-xs text-amber-600 hover:text-amber-800 bg-amber-100 px-2 py-1 rounded">
+                                                    Anwenden
+                                                </button>
+                                                <button onClick={() => setShowRecurringModal(true)}
+                                                    className="text-xs text-amber-600 hover:text-amber-800">
+                                                    + Neu
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div className="flex flex-wrap gap-2">
+                                            {recurringMeals.map(meal => (
+                                                <div key={meal.id} className="flex items-center gap-1 bg-white px-2 py-1 rounded-lg text-xs border">
+                                                    <span className="font-medium">{['Mo','Di','Mi','Do','Fr','Sa','So'][meal.weekday]}</span>
+                                                    <span className="text-gray-400">|</span>
+                                                    <span>{meal.title || meal.recipe?.title}</span>
+                                                    <button onClick={() => deleteRecurringMeal(meal.id)} className="text-red-400 hover:text-red-600 ml-1">×</button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                                
+                                {/* Add recurring meal button if none exist */}
+                                {recurringMeals.length === 0 && (
+                                    <button onClick={() => setShowRecurringModal(true)}
+                                        className="mb-4 w-full py-2 border-2 border-dashed border-amber-200 text-amber-600 rounded-xl hover:bg-amber-50 text-sm">
+                                        + Wiederkehrende Mahlzeit hinzufügen (z.B. "Freitag ist Pizza-Tag")
+                                    </button>
+                                )}
+                                
                                 {/* Two weeks display */}
                                 {twoWeeks.map((week, weekIdx) => {
                                     const today = new Date().toISOString().split('T')[0];
@@ -1338,6 +1521,9 @@
                     
                     {/* Note Modal */}
                     {noteModal && <NoteModal date={noteModal.date} onClose={() => setNoteModal(null)} />}
+                    
+                    {/* Recurring Meal Modal */}
+                    {showRecurringModal && <RecurringMealModal onClose={() => setShowRecurringModal(false)} savedRecipes={savedRecipes} />}
                 </div>
             );
         }
