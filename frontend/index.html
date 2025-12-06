@@ -47,7 +47,7 @@
             const [activeTab, setActiveTab] = React.useState('search');
             const [searchMode, setSearchMode] = React.useState('craving');
             const [searchQuery, setSearchQuery] = React.useState('');
-            const [useClaude, setUseClaude] = React.useState(false);
+            const [useClaude, setUseClaude] = React.useState(true);  // Always use Claude AI
             const [pantryItems, setPantryItems] = React.useState([]);
             const [newPantryItem, setNewPantryItem] = React.useState('');
             const [instagramUrl, setInstagramUrl] = React.useState('');
@@ -294,7 +294,6 @@
                         body: JSON.stringify({
                             query: searchQuery,
                             ingredients: searchMode === 'pantry' ? pantryItems.map(p => p.name) : [],
-                            use_claude: useClaude,
                             max_calories: 800,
                             offset: currentOffset
                         })
@@ -307,7 +306,7 @@
                     } else {
                         setRecipes(data);
                         setSearchOffset(10);
-                        setLastSearch({ query: searchQuery, useClaude, searchMode });
+                        setLastSearch({ query: searchQuery, searchMode });
                     }
                 } catch (e) { console.error(e); }
                 setLoading(false);
@@ -556,40 +555,21 @@
 
                                         {searchMode === 'craving' ? (
                                             <div className="space-y-3">
-                                                {/* Search Source Toggle */}
-                                                <div className="flex rounded-lg bg-gray-100 p-1">
-                                                    <button onClick={() => setUseClaude(false)}
-                                                        className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition flex items-center justify-center gap-2 ${
-                                                            !useClaude ? 'bg-white shadow text-blue-600' : 'text-gray-600 hover:text-gray-800'
-                                                        }`}>
-                                                        <span>🍽️</span> Echte Rezepte
-                                                        <span className="text-xs bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded">~4/Tag</span>
-                                                    </button>
-                                                    <button onClick={() => setUseClaude(true)}
-                                                        className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition flex items-center justify-center gap-2 ${
-                                                            useClaude ? 'bg-white shadow text-purple-600' : 'text-gray-600 hover:text-gray-800'
-                                                        }`}>
-                                                        <Icons.Sparkles /> AI Rezepte
-                                                        <span className="text-xs bg-green-100 text-green-600 px-1.5 py-0.5 rounded">Unbegrenzt</span>
-                                                    </button>
+                                                {/* AI Search Info */}
+                                                <div className="flex items-center gap-2 text-sm text-purple-600 bg-purple-50 px-3 py-2 rounded-lg">
+                                                    <Icons.Sparkles />
+                                                    <span>AI-gesteuerte Rezeptsuche - unbegrenzt</span>
                                                 </div>
-                                                <p className="text-xs text-gray-500 text-center">
-                                                    {useClaude 
-                                                        ? 'Claude AI generiert Rezepte - flexibler, aber ohne Bilder' 
-                                                        : 'Spoonacular API - echte Rezepte mit Bildern (~4 Suchen/Tag)'}
-                                                </p>
                                                 <div className="relative">
                                                     <div className="absolute left-3 top-3"><Icons.Search /></div>
-                                                    <input type="text" placeholder={useClaude ? "z.B. was leichtes mit Protein, hatte gestern Pasta..." : "z.B. Pasta, Curry, Hähnchen..."}
+                                                    <input type="text" placeholder="z.B. was leichtes mit Protein, hatte gestern Pasta..."
                                                         value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
                                                         onKeyPress={(e) => e.key === 'Enter' && searchRecipes()}
-                                                        className="w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500" />
+                                                        className="w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-purple-500" />
                                                 </div>
                                                 <button onClick={searchRecipes} disabled={loading}
-                                                    className={`w-full py-3 text-white rounded-lg disabled:opacity-50 font-medium ${
-                                                        useClaude ? 'bg-purple-500 hover:bg-purple-600' : 'bg-blue-500 hover:bg-blue-600'
-                                                    }`}>
-                                                    {loading ? 'Suche...' : useClaude ? 'Mit AI suchen' : 'Rezepte suchen'}
+                                                    className="w-full py-3 bg-purple-500 hover:bg-purple-600 text-white rounded-lg disabled:opacity-50 font-medium">
+                                                    {loading ? 'Suche...' : 'Rezepte suchen'}
                                                 </button>
                                             </div>
                                         ) : (
@@ -668,9 +648,6 @@
                                                         <span className="flex items-center gap-1"><Icons.Flame /> {recipe.calories || '?'} kcal</span>
                                                         <span className="flex items-center gap-1"><Icons.Clock /> {recipe.ready_in_minutes || '?'} Min</span>
                                                     </div>
-                                                    {recipe.source === 'claude' && (
-                                                        <span className="inline-block mt-2 px-2 py-0.5 bg-purple-100 text-purple-600 text-xs rounded">AI-generiert</span>
-                                                    )}
                                                     <div className="flex gap-1 mt-3">
                                                         {weekDates.slice(0, 4).map(({ day, date }) => (
                                                             <button key={day} onClick={(e) => { e.stopPropagation(); addToMealPlan(recipe, date); }}
