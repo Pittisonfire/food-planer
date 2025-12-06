@@ -5,7 +5,7 @@ from typing import Optional
 from datetime import date, timedelta
 
 from app.core.database import get_db
-from app.models.models import PantryItem, Recipe, MealPlan, ShoppingItem
+from app.models.models import PantryItem, Recipe, MealPlan, ShoppingItem, TasteProfile
 from app.services import claude_ai
 
 router = APIRouter()
@@ -415,3 +415,154 @@ async def clear_shopping_list(db: Session = Depends(get_db)):
     db.query(ShoppingItem).delete()
     db.commit()
     return {"status": "cleared"}
+
+
+# ============ Taste Profile Endpoints ============
+
+@router.get("/taste-profile")
+async def get_taste_profile(db: Session = Depends(get_db)):
+    """Get the current taste profile"""
+    profile = db.query(TasteProfile).first()
+    if not profile:
+        return {
+            "profile_data": {
+                "favorite_cuisines": [],
+                "favorite_ingredients": [],
+                "possible_dislikes": [],
+                "time_preference": "mittel",
+                "diet_tendency": "flexitarisch",
+                "summary": "Noch kein Profil erstellt - füge Favoriten hinzu oder koche mehr Rezepte!"
+            }
+        }
+    return {"profile_data": profile.profile_data}
+
+
+@router.post("/taste-profile/analyze")
+async def analyze_taste_profile(db: Session = Depends(get_db)):
+    """Analyze taste profile from recipe history"""
+    
+    # Get favorite recipes
+    favorites = db.query(Recipe).filter(Recipe.is_favorite == True).all()
+    favorite_dicts = [
+        {"title": r.title, "ingredients": r.ingredients or []}
+        for r in favorites
+    ]
+    
+    # Get cooked recipes (from meal plan)
+    from sqlalchemy import desc
+    meal_plans = db.query(MealPlan).order_by(desc(MealPlan.date)).limit(50).all()
+    recipe_ids = [mp.recipe_id for mp in meal_plans]
+    cooked_recipes = db.query(Recipe).filter(Recipe.id.in_(recipe_ids)).all() if recipe_ids else []
+    cooked_dicts = [
+        {"title": r.title, "ingredients": r.ingredients or []}
+        for r in cooked_recipes
+    ]
+    
+    # Analyze with Claude
+    profile_data = await claude_ai.analyze_taste_profile(favorite_dicts, cooked_dicts)
+    
+    # Save or update profile
+    profile = db.query(TasteProfile).first()
+    if profile:
+        profile.profile_data = profile_data
+    else:
+        profile = TasteProfile(profile_data=profile_data)
+        db.add(profile)
+    
+    db.commit()
+    
+    return {"profile_data": profile_data}
+
+
+class AutoPlanRequest(BaseModel):
+    days: int = 7
+    start_date: Optional[date] = None
+
+
+@router.post("/mealplan/auto-generate")
+async def auto_generate_mealplan(request: AutoPlanRequest, db: Session = Depends(get_db)):
+    """Auto-generate a meal plan based on taste profile"""
+    
+    # Get taste profile
+    profile = db.query(TasteProfile).first()
+    profile_data = profile.profile_data if profile else {}
+    
+    # Get existing plan for the period (to avoid duplicates)
+    start = request.start_date or date.today()
+    end = start + timedelta(days=request.days)
+    existing_plans = db.query(MealPlan).filter(
+        MealPlan.date >= start,
+        MealPlan.date < end
+    ).all()
+    
+    existing_recipe_ids = [mp.recipe_id for mp in existing_plans]
+    existing_recipes = db.query(Recipe).filter(Recipe.id.in_(existing_recipe_ids)).all() if existing_recipe_ids else []
+    existing_dicts = [{"title": r.title} for r in existing_recipes]
+    
+    # Get pantry items
+    pantry = db.query(PantryItem).all()
+    pantry_items = [p.name for p in pantry]
+    
+    # Generate recipes with Claude
+    recipes = await claude_ai.generate_week_plan(
+        taste_profile=profile_data,
+        days=request.days,
+        existing_plan=existing_dicts,
+        pantry_items=pantry_items
+    )
+    
+    if not recipes:
+        raise HTTPException(status_code=500, detail="Konnte keinen Plan generieren")
+    
+    # Save recipes and create meal plans
+    created_plans = []
+    current_date = start
+    
+    for recipe_data in recipes:
+        # Skip days that already have meals
+        while current_date < end:
+            day_has_meal = any(mp.date == current_date for mp in existing_plans)
+            if not day_has_meal:
+                break
+            current_date += timedelta(days=1)
+        
+        if current_date >= end:
+            break
+        
+        # Create recipe
+        recipe = Recipe(
+            title=recipe_data.get("title", "Unbekannt"),
+            calories=recipe_data.get("calories"),
+            ready_in_minutes=recipe_data.get("ready_in_minutes"),
+            servings=recipe_data.get("servings", 2),
+            ingredients=recipe_data.get("ingredients", []),
+            instructions=recipe_data.get("instructions", []),
+            source="claude",
+            taste_score=recipe_data.get("taste_score"),
+            tags=recipe_data.get("tags", [])
+        )
+        db.add(recipe)
+        db.flush()  # Get the ID
+        
+        # Create meal plan entry
+        meal_plan = MealPlan(
+            recipe_id=recipe.id,
+            date=current_date,
+            meal_type="lunch"  # Default to lunch
+        )
+        db.add(meal_plan)
+        
+        created_plans.append({
+            "date": current_date.isoformat(),
+            "recipe": recipe_data
+        })
+        
+        current_date += timedelta(days=1)
+    
+    db.commit()
+    
+    return {
+        "status": "created",
+        "plans": created_plans,
+        "profile_used": profile_data
+    }
