@@ -26,6 +26,8 @@ class Recipe(Base):
     instructions = Column(JSON, default=list)  # List of instruction steps
     source_url = Column(Text, nullable=True)  # Original URL (Instagram, etc.)
     is_favorite = Column(Boolean, default=False)
+    taste_score = Column(Integer, nullable=True)  # AI-calculated match score 0-100
+    tags = Column(JSON, default=list)  # Tags like: vegetarisch, schnell, italienisch
     created_at = Column(DateTime, server_default=func.now())
 
 
@@ -46,3 +48,19 @@ class ShoppingItem(Base):
     name = Column(String(500), nullable=False)
     checked = Column(Boolean, default=False)
     created_at = Column(DateTime, server_default=func.now())
+
+
+class TasteProfile(Base):
+    """Stores the user's learned taste preferences"""
+    __tablename__ = "taste_profile"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    profile_data = Column(JSON, default=dict)  # Learned preferences
+    # Example: {
+    #   "liked_cuisines": ["italienisch", "asiatisch"],
+    #   "disliked_ingredients": ["Fisch", "Pilze"],
+    #   "preferred_time": "schnell",  # under 30 min
+    #   "diet_preferences": ["vegetarisch"],
+    #   "favorite_ingredients": ["Pasta", "Hähnchen", "Reis"]
+    # }
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
