@@ -63,33 +63,57 @@
             const [recipeModal, setRecipeModal] = React.useState(null);  // For showing recipe details
             const [shoppingFilter, setShoppingFilter] = React.useState('all'); // 'all', 'kw49', 'kw50', 'custom'
             const [selectedDays, setSelectedDays] = React.useState([]);  // For custom day selection
-            const [dayNotes, setDayNotes] = React.useState({});  // For day blockers/notes like "Restaurant"
+            const [dayNotes, setDayNotes] = React.useState([]);  // Array of {id, date, mealType, text}
 
-            // Day notes functions
-            const addDayNote = (date, note) => {
-                setDayNotes(prev => ({ ...prev, [date]: note }));
-                // Also save to localStorage for persistence
-                const notes = JSON.parse(localStorage.getItem('dayNotes') || '{}');
-                notes[date] = note;
+            // Day notes functions - now supports multiple notes per section
+            const addDayNote = (date, mealType, note) => {
+                const newNote = { id: Date.now(), date, mealType, text: note };
+                setDayNotes(prev => [...prev, newNote]);
+                // Save to localStorage
+                const notes = JSON.parse(localStorage.getItem('dayNotes') || '[]');
+                notes.push(newNote);
                 localStorage.setItem('dayNotes', JSON.stringify(notes));
             };
             
-            const removeDayNote = (date) => {
-                setDayNotes(prev => {
-                    const updated = { ...prev };
-                    delete updated[date];
-                    return updated;
-                });
+            const removeDayNote = (noteId) => {
+                setDayNotes(prev => prev.filter(n => n.id !== noteId));
                 // Update localStorage
-                const notes = JSON.parse(localStorage.getItem('dayNotes') || '{}');
-                delete notes[date];
-                localStorage.setItem('dayNotes', JSON.stringify(notes));
+                const notes = JSON.parse(localStorage.getItem('dayNotes') || '[]');
+                localStorage.setItem('dayNotes', JSON.stringify(notes.filter(n => n.id !== noteId)));
+            };
+            
+            const getNotesForSection = (date, mealType) => {
+                return dayNotes.filter(n => n.date === date && n.mealType === mealType);
+            };
+            
+            // Change meal type for a meal plan entry
+            const changeMealType = async (planId, newMealType) => {
+                try {
+                    await fetch(`${API_BASE}/mealplan/${planId}/type`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ meal_type: newMealType })
+                    });
+                    await loadMealPlan();
+                } catch (e) { console.error(e); }
             };
             
             // Load dayNotes from localStorage on mount
             React.useEffect(() => {
-                const notes = JSON.parse(localStorage.getItem('dayNotes') || '{}');
-                setDayNotes(notes);
+                const notes = JSON.parse(localStorage.getItem('dayNotes') || '[]');
+                // Migration: convert old format {date: text} to new format [{id, date, mealType, text}]
+                if (!Array.isArray(notes)) {
+                    const migrated = Object.entries(notes).map(([date, text]) => ({
+                        id: Date.now() + Math.random(),
+                        date,
+                        mealType: 'lunch',
+                        text
+                    }));
+                    setDayNotes(migrated);
+                    localStorage.setItem('dayNotes', JSON.stringify(migrated));
+                } else {
+                    setDayNotes(notes);
+                }
             }, []);
 
             // Toggle favorite function
@@ -121,10 +145,10 @@
                 };
                 
                 const mealTypes = [
-                    { type: 'breakfast', name: 'Frühstück', icon: '🌅' },
-                    { type: 'lunch', name: 'Mittag', icon: '☀️' },
-                    { type: 'dinner', name: 'Abend', icon: '🌙' },
-                    { type: 'snack', name: 'Snack', icon: '🍎' }
+                    { type: 'breakfast', name: 'Frühstück' },
+                    { type: 'lunch', name: 'Mittag' },
+                    { type: 'dinner', name: 'Abend' },
+                    { type: 'snack', name: 'Snack' }
                 ];
                 
                 return (
@@ -173,7 +197,7 @@
                             <div className="p-4 border-b bg-blue-50">
                                 <p className="text-sm text-gray-600 mb-2 font-medium">Mahlzeit:</p>
                                 <div className="flex gap-2 mb-4">
-                                    {mealTypes.map(({ type, name, icon }) => (
+                                    {mealTypes.map(({ type, name }) => (
                                         <button key={type}
                                             onClick={() => setSelectedMealType(type)}
                                             className={`flex-1 py-2 px-2 rounded-lg text-xs font-medium transition ${
@@ -181,7 +205,7 @@
                                                     ? 'bg-blue-500 text-white' 
                                                     : 'bg-white text-gray-600 hover:bg-blue-100'
                                             }`}>
-                                            {icon} {name}
+                                            {name}
                                         </button>
                                     ))}
                                 </div>
@@ -837,7 +861,6 @@
                                         <div className="flex flex-col lg:grid lg:grid-cols-7 gap-3">
                                             {week.days.map(({ day, date }) => {
                                                 const isPast = date < today;
-                                                const dayNote = dayNotes[date];
                                                 
                                                 return (
                                                 <div key={date} 
@@ -862,69 +885,89 @@
                                                         </div>
                                                     </div>
                                                     
-                                                    {/* Day Note / Blocker */}
-                                                    {dayNote && (
-                                                        <div className="mx-2 mt-2 p-2 bg-purple-100 rounded-lg flex items-center justify-between">
-                                                            <span className="text-sm text-purple-700">{dayNote}</span>
-                                                            <button onClick={() => removeDayNote(date)} className="text-purple-400 hover:text-purple-600">
-                                                                <Icons.X />
-                                                            </button>
-                                                        </div>
-                                                    )}
+                                                    {/* Day Note / Blocker - removed, now per section */}
                                                     
-                                                    <div className="p-2 space-y-1">
+                                                    <div className="divide-y divide-gray-100">
                                                         {/* Meal Sections */}
                                                         {[
-                                                            { type: 'breakfast', name: 'Frühstück', icon: '🌅', color: 'orange' },
-                                                            { type: 'lunch', name: 'Mittag', icon: '☀️', color: 'yellow' },
-                                                            { type: 'dinner', name: 'Abend', icon: '🌙', color: 'indigo' },
-                                                            { type: 'snack', name: 'Snacks', icon: '🍎', color: 'green' }
-                                                        ].map(({ type, name, icon, color }) => {
+                                                            { type: 'breakfast', name: 'Frühstück' },
+                                                            { type: 'lunch', name: 'Mittag' },
+                                                            { type: 'dinner', name: 'Abend' },
+                                                            { type: 'snack', name: 'Snacks' }
+                                                        ].map(({ type, name }) => {
                                                             const mealsOfType = mealPlan.filter(p => p.date === date && p.meal_type === type);
+                                                            const sectionNotes = getNotesForSection(date, type);
+                                                            const otherTypes = [
+                                                                { type: 'breakfast', name: 'F' },
+                                                                { type: 'lunch', name: 'M' },
+                                                                { type: 'dinner', name: 'A' },
+                                                                { type: 'snack', name: 'S' }
+                                                            ].filter(t => t.type !== type);
+                                                            
                                                             return (
-                                                                <div key={type} className="mb-2">
-                                                                    <div className={`text-xs font-medium text-${color}-600 flex items-center gap-1 mb-1 px-1`}>
-                                                                        <span>{icon}</span> {name}
+                                                                <div key={type} className="py-2 px-3">
+                                                                    <div className="flex items-center justify-between mb-1">
+                                                                        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{name}</span>
+                                                                        {!isPast && (
+                                                                            <button onClick={() => {
+                                                                                const note = prompt(`Notiz für ${name}:`);
+                                                                                if (note) addDayNote(date, type, note);
+                                                                            }}
+                                                                                className="text-xs text-gray-300 hover:text-purple-500">
+                                                                                + Notiz
+                                                                            </button>
+                                                                        )}
                                                                     </div>
+                                                                    
+                                                                    {/* Notes for this section */}
+                                                                    {sectionNotes.map(note => (
+                                                                        <div key={note.id} className="mb-1 p-2 bg-purple-50 rounded flex items-center justify-between">
+                                                                            <span className="text-xs text-purple-700">{note.text}</span>
+                                                                            <button onClick={() => removeDayNote(note.id)} className="text-purple-300 hover:text-purple-600 text-xs">×</button>
+                                                                        </div>
+                                                                    ))}
+                                                                    
+                                                                    {/* Meals */}
                                                                     {mealsOfType.length > 0 ? (
                                                                         <div className="space-y-1">
                                                                             {mealsOfType.map(meal => (
-                                                                                <div key={meal.id} draggable onDragStart={(e) => handleDragStart(e, meal)}
-                                                                                    onClick={() => setRecipeModal(meal.recipe)}
-                                                                                    className={`bg-gradient-to-r from-${color}-50 to-${color}-100 rounded-lg p-2 cursor-pointer border border-${color}-200 hover:shadow-md transition`}>
+                                                                                <div key={meal.id} 
+                                                                                    className="bg-white border border-gray-200 rounded-lg p-2 hover:shadow-sm transition">
                                                                                     <div className="flex items-center gap-2">
                                                                                         {meal.recipe?.image_url && (
-                                                                                            <img src={meal.recipe.image_url} alt="" className="w-10 h-10 object-cover rounded flex-shrink-0" />
+                                                                                            <img src={meal.recipe.image_url} alt="" 
+                                                                                                className="w-10 h-10 object-cover rounded flex-shrink-0 cursor-pointer"
+                                                                                                onClick={() => setRecipeModal(meal.recipe)} />
                                                                                         )}
-                                                                                        <div className="flex-1 min-w-0">
+                                                                                        <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setRecipeModal(meal.recipe)}>
                                                                                             <p className="text-xs font-medium text-gray-700 line-clamp-1">{meal.recipe?.title}</p>
                                                                                             <p className="text-xs text-gray-400">{meal.recipe?.calories || '?'} kcal</p>
                                                                                         </div>
+                                                                                        {/* Move buttons */}
+                                                                                        <div className="flex gap-0.5">
+                                                                                            {otherTypes.map(t => (
+                                                                                                <button key={t.type}
+                                                                                                    onClick={() => changeMealType(meal.id, t.type)}
+                                                                                                    className="w-5 h-5 text-xs bg-gray-100 hover:bg-blue-100 hover:text-blue-600 rounded"
+                                                                                                    title={`Verschieben zu ${t.type === 'breakfast' ? 'Frühstück' : t.type === 'lunch' ? 'Mittag' : t.type === 'dinner' ? 'Abend' : 'Snacks'}`}>
+                                                                                                    {t.name}
+                                                                                                </button>
+                                                                                            ))}
+                                                                                        </div>
                                                                                         <button onClick={(e) => { e.stopPropagation(); removeFromMealPlan(meal.id); }}
-                                                                                            className="text-red-400 hover:text-red-600 p-1">
-                                                                                            <Icons.X />
+                                                                                            className="text-red-300 hover:text-red-600 p-1 text-xs">
+                                                                                            ×
                                                                                         </button>
                                                                                     </div>
                                                                                 </div>
                                                                             ))}
                                                                         </div>
-                                                                    ) : (
-                                                                        <div className="text-center py-1 text-gray-200 text-xs">-</div>
-                                                                    )}
+                                                                    ) : sectionNotes.length === 0 ? (
+                                                                        <div className="text-center py-1 text-gray-200 text-xs">—</div>
+                                                                    ) : null}
                                                                 </div>
                                                             );
                                                         })}
-                                                        
-                                                        {/* Add Note Button */}
-                                                        {!isPast && !dayNote && (
-                                                            <button onClick={() => {
-                                                                const note = prompt('Notiz für diesen Tag (z.B. "Restaurant", "Auswärts"):');
-                                                                if (note) addDayNote(date, note);
-                                                            }}
-                                                                className="w-full mt-2 py-2 text-xs text-gray-400 hover:text-purple-500 hover:bg-purple-50 rounded-lg transition flex items-center justify-center gap-1">
-                                                                <Icons.Plus /> Notiz
-                                                            </button>
-                                                        )}
                                                     </div>
                                                 </div>
                                                 );
