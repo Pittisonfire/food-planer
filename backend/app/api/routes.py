@@ -6,7 +6,7 @@ from datetime import date, timedelta
 
 from app.core.database import get_db
 from app.models.models import PantryItem, Recipe, MealPlan, ShoppingItem
-from app.services import spoonacular, claude_ai
+from app.services import claude_ai
 
 router = APIRouter()
 
@@ -17,7 +17,6 @@ class RecipeSearch(BaseModel):
     query: str = ""
     ingredients: list[str] = []
     max_calories: Optional[int] = None
-    use_claude: bool = False
     offset: int = 0  # For "load more" pagination
 
 
@@ -70,30 +69,15 @@ async def toggle_favorite(recipe_id: int, db: Session = Depends(get_db)):
 
 @router.post("/recipes/search")
 async def search_recipes(search: RecipeSearch, db: Session = Depends(get_db)):
-    """Search recipes from Spoonacular or Claude"""
+    """Search recipes using Claude AI"""
     
-    if search.use_claude:
-        # Use Claude for smart suggestions
-        recipes = await claude_ai.suggest_recipes(
-            query=search.query,
-            pantry_items=search.ingredients if search.ingredients else None,
-            max_calories=search.max_calories,
-            offset=search.offset
-        )
-    elif search.ingredients:
-        # Search by ingredients via Spoonacular
-        recipes = await spoonacular.search_recipes(
-            ingredients=search.ingredients,
-            max_calories=search.max_calories,
-            offset=search.offset
-        )
-    else:
-        # Search by query via Spoonacular
-        recipes = await spoonacular.search_recipes(
-            query=search.query,
-            max_calories=search.max_calories,
-            offset=search.offset
-        )
+    # Always use Claude AI for recipe suggestions
+    recipes = await claude_ai.suggest_recipes(
+        query=search.query,
+        pantry_items=search.ingredients if search.ingredients else None,
+        max_calories=search.max_calories,
+        offset=search.offset
+    )
     
     return recipes
 
