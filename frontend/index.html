@@ -85,8 +85,8 @@
             const RecipeModal = ({ recipe, onClose }) => {
                 if (!recipe) return null;
                 
-                const handleAddToDay = (date) => {
-                    addToMealPlan(recipe, date);
+                const handleAddToDay = async (date) => {
+                    await addToMealPlan(recipe, date);
                     onClose();
                 };
                 
