@@ -65,6 +65,8 @@
             const [selectedDays, setSelectedDays] = React.useState([]);  // For custom day selection
             const [dayNotes, setDayNotes] = React.useState([]);  // Array of {id, date, mealType, text}
             const [noteModal, setNoteModal] = React.useState(null);  // {date: '2024-12-06'} when open
+            const [tasteProfile, setTasteProfile] = React.useState(null);  // AI taste profile
+            const [autoPlanning, setAutoPlanning] = React.useState(false);  // Auto-plan loading state
 
             // Day notes functions - now supports multiple notes per section
             const addDayNote = (date, mealType, note) => {
@@ -139,10 +141,27 @@
                 if (!recipe) return null;
                 
                 const [selectedMealType, setSelectedMealType] = React.useState('lunch');
+                const [servings, setServings] = React.useState(recipe.servings || 2);
+                const originalServings = recipe.servings || 2;
                 
                 const handleAddToDay = async (date) => {
                     await addToMealPlan(recipe, date, selectedMealType);
                     onClose();
+                };
+                
+                // Scale ingredient quantities based on servings
+                const scaleIngredient = (ingredient) => {
+                    if (servings === originalServings) return ingredient;
+                    
+                    // Try to find and scale numbers in the ingredient string
+                    const scaled = ingredient.replace(/(\d+(?:[.,]\d+)?)\s*(g|kg|ml|l|EL|TL|Stück|Scheiben?|Zehen?)?/gi, (match, num, unit) => {
+                        const originalNum = parseFloat(num.replace(',', '.'));
+                        const scaledNum = (originalNum / originalServings * servings);
+                        // Round nicely
+                        const rounded = scaledNum < 10 ? Math.round(scaledNum * 10) / 10 : Math.round(scaledNum);
+                        return `${rounded}${unit ? unit : ''}`;
+                    });
+                    return scaled;
                 };
                 
                 const mealTypes = [
@@ -181,15 +200,21 @@
                             {/* Info Bar */}
                             <div className="flex justify-around py-4 bg-gray-50 border-b">
                                 <div className="text-center">
-                                    <div className="text-2xl font-bold text-orange-500">{recipe.calories || '?'}</div>
-                                    <div className="text-xs text-gray-500">kcal</div>
+                                    <div className="text-2xl font-bold text-orange-500">{Math.round((recipe.calories || 0) / originalServings * servings)}</div>
+                                    <div className="text-xs text-gray-500">kcal gesamt</div>
                                 </div>
                                 <div className="text-center">
                                     <div className="text-2xl font-bold text-blue-500">{recipe.ready_in_minutes || '?'}</div>
                                     <div className="text-xs text-gray-500">Minuten</div>
                                 </div>
                                 <div className="text-center">
-                                    <div className="text-2xl font-bold text-green-500">{recipe.servings || 2}</div>
+                                    <div className="flex items-center justify-center gap-2">
+                                        <button onClick={() => setServings(Math.max(1, servings - 1))}
+                                            className="w-7 h-7 rounded-full bg-green-100 text-green-600 hover:bg-green-200 font-bold">-</button>
+                                        <span className="text-2xl font-bold text-green-500 w-8 text-center">{servings}</span>
+                                        <button onClick={() => setServings(servings + 1)}
+                                            className="w-7 h-7 rounded-full bg-green-100 text-green-600 hover:bg-green-200 font-bold">+</button>
+                                    </div>
                                     <div className="text-xs text-gray-500">Portionen</div>
                                 </div>
                             </div>
@@ -242,13 +267,18 @@
                             {/* Ingredients */}
                             <div className="p-4 border-b">
                                 <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2">
-                                    <Icons.Cart /> Zutaten
+                                    <Icons.Cart /> Zutaten 
+                                    {servings !== originalServings && (
+                                        <span className="text-xs font-normal text-green-600 bg-green-100 px-2 py-0.5 rounded-full">
+                                            angepasst für {servings} Portionen
+                                        </span>
+                                    )}
                                 </h3>
                                 <ul className="space-y-2">
                                     {(recipe.ingredients || []).map((ing, idx) => (
                                         <li key={idx} className="flex items-start gap-2 text-gray-700">
                                             <span className="w-2 h-2 bg-green-500 rounded-full mt-2 flex-shrink-0"></span>
-                                            {ing}
+                                            {scaleIngredient(ing)}
                                         </li>
                                     ))}
                                 </ul>
@@ -395,6 +425,7 @@
                 loadMealPlan();
                 loadShoppingList();
                 loadPantry();
+                loadTasteProfile();
             }, []);
 
             const loadSavedRecipes = async () => {
@@ -427,6 +458,43 @@
                     const data = await res.json();
                     setPantryItems(data);
                 } catch (e) { console.error(e); }
+            };
+
+            // Taste Profile Functions
+            const loadTasteProfile = async () => {
+                try {
+                    const res = await fetch(`${API_BASE}/taste-profile`);
+                    const data = await res.json();
+                    setTasteProfile(data.profile_data);
+                } catch (e) { console.error(e); }
+            };
+
+            const analyzeTasteProfile = async () => {
+                setLoading(true);
+                try {
+                    const res = await fetch(`${API_BASE}/taste-profile/analyze`, { method: 'POST' });
+                    const data = await res.json();
+                    setTasteProfile(data.profile_data);
+                } catch (e) { console.error(e); }
+                setLoading(false);
+            };
+
+            const autoGeneratePlan = async (days = 7) => {
+                setAutoPlanning(true);
+                try {
+                    const today = new Date().toISOString().split('T')[0];
+                    const res = await fetch(`${API_BASE}/mealplan/auto-generate`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ days, start_date: today })
+                    });
+                    const data = await res.json();
+                    if (data.status === 'created') {
+                        await loadMealPlan();
+                        await loadSavedRecipes();
+                    }
+                } catch (e) { console.error(e); }
+                setAutoPlanning(false);
             };
 
             const searchRecipes = async (loadMore = false) => {
@@ -783,6 +851,12 @@
                                                         <Icons.Heart filled={recipe.is_favorite} />
                                                     </button>
                                                 )}
+                                                {/* Taste Score Badge */}
+                                                {recipe.taste_score && (
+                                                    <div className="absolute top-2 left-2 z-10 px-2 py-1 bg-purple-500 text-white text-xs font-bold rounded-full">
+                                                        {recipe.taste_score}% Match
+                                                    </div>
+                                                )}
                                                 {recipe.image_url ? (
                                                     <img src={recipe.image_url} alt={recipe.title} className="h-40 w-full object-cover" />
                                                 ) : (
@@ -796,6 +870,14 @@
                                                         <span className="flex items-center gap-1"><Icons.Flame /> {recipe.calories || '?'} kcal</span>
                                                         <span className="flex items-center gap-1"><Icons.Clock /> {recipe.ready_in_minutes || '?'} Min</span>
                                                     </div>
+                                                    {/* Tags */}
+                                                    {recipe.tags?.length > 0 && (
+                                                        <div className="flex flex-wrap gap-1 mt-2">
+                                                            {recipe.tags.slice(0, 3).map((tag, i) => (
+                                                                <span key={i} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{tag}</span>
+                                                            ))}
+                                                        </div>
+                                                    )}
                                                     <div className="flex gap-1 mt-3">
                                                         {(() => {
                                                             const today = new Date().toISOString().split('T')[0];
@@ -887,13 +969,47 @@
                         {/* Meal Plan Tab (Kanban) */}
                         {activeTab === 'plan' && (
                             <div>
-                                <div className="flex justify-between items-center mb-4">
-                                    <h2 className="text-xl font-bold text-gray-800">Wochenübersicht</h2>
-                                    <button onClick={() => setActiveTab('shopping')}
-                                        className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 flex items-center gap-2 text-sm">
-                                        <Icons.Cart /> Einkaufsliste
-                                    </button>
+                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3">
+                                    <div>
+                                        <h2 className="text-xl font-bold text-gray-800">Wochenübersicht</h2>
+                                        {tasteProfile?.summary && (
+                                            <p className="text-xs text-gray-500 mt-1">{tasteProfile.summary}</p>
+                                        )}
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => autoGeneratePlan(7)}
+                                            disabled={autoPlanning}
+                                            className="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 disabled:opacity-50 flex items-center gap-2 text-sm">
+                                            {autoPlanning ? (
+                                                <><span className="animate-spin">...</span> Plane...</>
+                                            ) : (
+                                                <><Icons.Search /> Auto-Plan</>
+                                            )}
+                                        </button>
+                                        <button onClick={() => setActiveTab('shopping')}
+                                            className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 flex items-center gap-2 text-sm">
+                                            <Icons.Cart /> Einkaufsliste
+                                        </button>
+                                    </div>
                                 </div>
+                                
+                                {/* Taste Profile Card - collapsible */}
+                                {tasteProfile && tasteProfile.favorite_cuisines?.length > 0 && (
+                                    <div className="mb-4 p-3 bg-gradient-to-r from-purple-50 to-indigo-50 rounded-xl border border-purple-100">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-purple-600 font-medium text-sm">Dein Geschmacksprofil</span>
+                                                {tasteProfile.favorite_cuisines?.slice(0, 3).map((c, i) => (
+                                                    <span key={i} className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">{c}</span>
+                                                ))}
+                                            </div>
+                                            <button onClick={analyzeTasteProfile} disabled={loading}
+                                                className="text-xs text-purple-500 hover:text-purple-700">
+                                                {loading ? 'Analysiere...' : 'Aktualisieren'}
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
                                 
                                 {/* Two weeks display */}
                                 {twoWeeks.map((week, weekIdx) => {
