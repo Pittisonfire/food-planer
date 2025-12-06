@@ -50,6 +50,18 @@ class ShoppingItem(Base):
     created_at = Column(DateTime, server_default=func.now())
 
 
+class RecurringMeal(Base):
+    """Stores recurring meal rules like 'Friday is always Pizza'"""
+    __tablename__ = "recurring_meals"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    weekday = Column(Integer, nullable=False)  # 0=Monday, 6=Sunday
+    meal_type = Column(String(50), default="dinner")  # breakfast, lunch, dinner, snack
+    recipe_id = Column(Integer, nullable=True)  # Link to a specific recipe
+    title = Column(String(255), nullable=True)  # Or just a text like "Pizza"
+    created_at = Column(DateTime, server_default=func.now())
+
+
 class TasteProfile(Base):
     """Stores the user's learned taste preferences"""
     __tablename__ = "taste_profile"
