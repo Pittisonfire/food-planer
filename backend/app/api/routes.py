@@ -195,13 +195,14 @@ async def get_meal_plan(
     start_date: Optional[date] = None,
     db: Session = Depends(get_db)
 ):
-    """Get meal plan for the week"""
+    """Get meal plan for two weeks"""
     if not start_date:
         # Default to current week (Monday)
         today = date.today()
         start_date = today - timedelta(days=today.weekday())
     
-    end_date = start_date + timedelta(days=6)
+    # Two weeks instead of one
+    end_date = start_date + timedelta(days=13)
     
     plans = db.query(MealPlan).filter(
         MealPlan.date >= start_date,
