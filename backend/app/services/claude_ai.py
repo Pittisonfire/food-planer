@@ -832,19 +832,29 @@ async def search_supermarket_offers(
     # Extract product names from items (remove quantities)
     search_terms = []
     for item in items[:10]:  # Max 10 items
-        # Remove quantities and units to get core product name
-        cleaned = re.sub(r'^[\d.,/\s]+', '', item)
-        cleaned = re.sub(r'\b\d+[.,]?\d*\s*(g|kg|ml|l|EL|TL|Stück)\b', '', cleaned, flags=re.IGNORECASE)
+        # Remove quantities, units, and common prefixes
+        cleaned = item
+        # Remove leading numbers and units
+        cleaned = re.sub(r'^[\d.,/\s]+', '', cleaned)
+        # Remove units with numbers
+        cleaned = re.sub(r'\b\d+[.,]?\d*\s*(g|kg|ml|l|EL|TL|Stück|Dose|Packung|Bund|Zehe|Prise)\b', '', cleaned, flags=re.IGNORECASE)
+        # Remove standalone units at start
+        cleaned = re.sub(r'^(g|kg|ml|l|EL|TL|ca|etwa|optional)\s+', '', cleaned, flags=re.IGNORECASE)
+        # Remove common filler words
+        cleaned = re.sub(r'\b(nach Bedarf|optional|etwa|ca|frisch|gehackt|gewürfelt|geschnitten)\b', '', cleaned, flags=re.IGNORECASE)
         cleaned = cleaned.strip()
+        
         if cleaned and len(cleaned) > 2:
-            # Take first 2-3 words as search term
-            words = cleaned.split()[:3]
-            search_terms.append(' '.join(words))
+            # Take first 2 significant words as search term
+            words = [w for w in cleaned.split() if len(w) > 1][:2]
+            if words:
+                search_terms.append(' '.join(words))
     
-    # Remove duplicates
-    search_terms = list(dict.fromkeys(search_terms))
+    # Remove duplicates and empty strings
+    search_terms = [t for t in dict.fromkeys(search_terms) if t and len(t) > 2]
     
     print(f"Searching Marktguru for: {search_terms} in PLZ {postal_code}")
+    print(f"Filtering by supermarkets: {supermarkets}")
     
     all_offers = []
     seen_offers = set()  # Deduplicate by product+price+retailer_base
@@ -935,6 +945,10 @@ async def search_supermarket_offers(
                         
                         offer_id = result.get('id')
                         
+                        # Get category from Marktguru
+                        categories = result.get('categories', [])
+                        offer_category = categories[0].get('name', '') if categories else ''
+                        
                         offer = {
                             "item": product_name,
                             "supermarket": retailer,
@@ -943,7 +957,8 @@ async def search_supermarket_offers(
                             "valid_from": valid_from,
                             "valid_until": valid_to,
                             "details": result.get('description', ''),
-                            "url": f"https://www.marktguru.de/offers/{offer_id}" if offer_id else None
+                            "url": f"https://www.marktguru.de/offers/{offer_id}" if offer_id else None,
+                            "category": offer_category
                         }
                         all_offers.append(offer)
         
