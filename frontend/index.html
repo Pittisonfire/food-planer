@@ -250,6 +250,7 @@
             const [shoppingCategories, setShoppingCategories] = React.useState([]);  // Categorized items
             const [shoppingFromPantry, setShoppingFromPantry] = React.useState([]);  // Items from pantry
             const [shoppingBasicItems, setShoppingBasicItems] = React.useState([]);  // Basic items to check
+            const [shoppingLoading, setShoppingLoading] = React.useState(false);  // AI processing indicator
             const [selectedRecipe, setSelectedRecipe] = React.useState(null);
             const [loading, setLoading] = React.useState(false);
             const [draggedMeal, setDraggedMeal] = React.useState(null);
@@ -1094,6 +1095,7 @@
             };
 
             const generateShoppingList = async (filter = 'all', customDates = []) => {
+                setShoppingLoading(true);
                 try {
                     // Determine which dates to include
                     let dates = [];
@@ -1128,6 +1130,7 @@
                         setShoppingBasicItems([]);
                     }
                 } catch (e) { console.error(e); }
+                setShoppingLoading(false);
             };
 
             const toggleShoppingItem = async (id) => {
@@ -1915,13 +1918,33 @@
                                         </div>
                                     </div>
                                     
-                                    {shoppingList.length === 0 && shoppingCategories.length === 0 ? (
+                                    {/* AI Loading Indicator */}
+                                    {shoppingLoading && (
+                                        <div className="p-8 text-center">
+                                            <div className="inline-flex flex-col items-center gap-3">
+                                                <div className="relative">
+                                                    <div className="text-5xl animate-bounce">🤖</div>
+                                                    <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2">
+                                                        <div className="flex gap-1">
+                                                            <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse" style={{animationDelay: '0ms'}}></div>
+                                                            <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse" style={{animationDelay: '150ms'}}></div>
+                                                            <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse" style={{animationDelay: '300ms'}}></div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="text-gray-600 font-medium">AI sortiert deine Einkaufsliste...</div>
+                                                <div className="text-sm text-gray-400">Kategorien, Mengen zusammenfassen, Vorrat prüfen</div>
+                                            </div>
+                                        </div>
+                                    )}
+                                    
+                                    {!shoppingLoading && shoppingList.length === 0 && shoppingCategories.length === 0 ? (
                                         <div className="p-8 text-center text-gray-400">
                                             <div className="text-6xl mb-4 opacity-30">🛒</div>
                                             <p>Noch keine Einkaufsliste</p>
                                             <p className="text-sm mt-2">Wähle oben eine Option und erstelle die Liste</p>
                                         </div>
-                                    ) : (
+                                    ) : !shoppingLoading && (
                                         <div>
                                             {/* Categorized Shopping Items */}
                                             {shoppingCategories.length > 0 ? (
