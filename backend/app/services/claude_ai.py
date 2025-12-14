@@ -680,3 +680,137 @@ Antworte NUR mit einer Zahl (0-100):"""
     except Exception as e:
         print(f"Taste score calculation error: {e}")
         return 50  # Default neutral score
+
+
+async def process_shopping_list(
+    ingredients: list[str],
+    pantry_items: list[str] = None
+) -> dict:
+    """Process ingredients into a smart shopping list with categories, merged quantities, and pantry matching"""
+    
+    client = get_claude_client()
+    
+    pantry_context = ""
+    if pantry_items:
+        pantry_context = f"\nVORRAT (was der Nutzer zuhause hat):\n{chr(10).join(f'- {item}' for item in pantry_items)}\n"
+    
+    prompt = f"""Du bist ein intelligenter Einkaufsassistent. Verarbeite diese Zutatenliste.
+
+ZUTATEN AUS REZEPTEN:
+{chr(10).join(f'- {ing}' for ing in ingredients)}
+{pantry_context}
+
+AUFGABEN:
+1. Fasse gleiche Zutaten mit Mengen zusammen (z.B. "200g Hähnchen" + "300g Hähnchen" = "500g Hähnchenbrust")
+2. Normalisiere Einheiten (1000g → 1kg, 1000ml → 1l)
+3. Ordne jede Zutat einer Kategorie zu
+4. Identifiziere Basis-Zutaten die man typischerweise zuhause hat
+5. Prüfe welche Zutaten im Vorrat sind
+
+KATEGORIEN (nutze genau diese):
+- "Obst & Gemüse"
+- "Fleisch & Fisch"
+- "Milchprodukte"
+- "Backwaren"
+- "Tiefkühl"
+- "Konserven & Fertigprodukte"
+- "Gewürze & Öle"
+- "Getränke"
+- "Sonstiges"
+
+BASIS-ZUTATEN (typischerweise im Haushalt vorhanden):
+Salz, Pfeffer, Zucker, Mehl, Öl, Butter, Essig, Senf, Knoblauch, Zwiebeln, etc.
+
+Antworte NUR mit einem JSON-Objekt in diesem Format:
+{{
+  "shopping_items": [
+    {{
+      "name": "Hähnchenbrust",
+      "amount": "500g",
+      "category": "Fleisch & Fisch",
+      "original_items": ["200g Hähnchenbrust", "300g Hähnchen"]
+    }}
+  ],
+  "from_pantry": [
+    {{
+      "name": "Reis",
+      "amount": "300g",
+      "pantry_match": "Reis",
+      "have_enough": true
+    }}
+  ],
+  "basic_items": [
+    {{
+      "name": "Salz",
+      "category": "Gewürze & Öle"
+    }}
+  ]
+}}
+
+Antworte NUR mit validem JSON, kein anderer Text:"""
+
+    try:
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=4000,
+            messages=[
+                {"role": "user", "content": prompt}
+            ]
+        )
+        
+        response_text = message.content[0].text.strip()
+        
+        # Clean up response
+        if response_text.startswith("```"):
+            response_text = re.sub(r'^```(?:json)?\n?', '', response_text)
+            response_text = re.sub(r'\n?```$', '', response_text)
+        
+        result = json.loads(response_text)
+        
+        # Group shopping items by category
+        categorized = {}
+        for item in result.get("shopping_items", []):
+            category = item.get("category", "Sonstiges")
+            if category not in categorized:
+                categorized[category] = []
+            categorized[category].append(item)
+        
+        # Define category order
+        category_order = [
+            "Obst & Gemüse",
+            "Fleisch & Fisch", 
+            "Milchprodukte",
+            "Backwaren",
+            "Tiefkühl",
+            "Konserven & Fertigprodukte",
+            "Gewürze & Öle",
+            "Getränke",
+            "Sonstiges"
+        ]
+        
+        # Sort categories
+        sorted_categories = []
+        for cat in category_order:
+            if cat in categorized:
+                sorted_categories.append({
+                    "name": cat,
+                    "items": categorized[cat]
+                })
+        
+        return {
+            "categories": sorted_categories,
+            "from_pantry": result.get("from_pantry", []),
+            "basic_items": result.get("basic_items", [])
+        }
+        
+    except Exception as e:
+        print(f"Shopping list processing error: {e}")
+        # Fallback: return unprocessed list
+        return {
+            "categories": [{
+                "name": "Sonstiges",
+                "items": [{"name": ing, "amount": "", "category": "Sonstiges"} for ing in ingredients]
+            }],
+            "from_pantry": [],
+            "basic_items": []
+        }
