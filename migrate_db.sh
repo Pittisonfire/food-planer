@@ -67,12 +67,12 @@ BEGIN
     END IF;
 END $$;
 
--- Create default household for existing data
+-- Create Peters household
 INSERT INTO households (id, name, invite_code) 
-VALUES (1, 'Default Household', 'DEFAULT123')
+VALUES (1, 'Peters Haushalt', 'PETER2024')
 ON CONFLICT (id) DO NOTHING;
 
--- Update existing data to use default household
+-- Update existing data to use Peters household
 UPDATE pantry_items SET household_id = 1 WHERE household_id IS NULL;
 UPDATE recipes SET household_id = 1 WHERE household_id IS NULL;
 UPDATE meal_plans SET household_id = 1 WHERE household_id IS NULL;
@@ -107,10 +107,27 @@ EOF
 echo ""
 echo "Migration complete!"
 echo ""
-echo "IMPORTANT: Create your first user by registering in the app."
-echo "Your existing data has been assigned to 'Default Household' (ID: 1)."
-echo "After registering, your new user will need to be added to household 1"
-echo "to see the existing data."
+echo "=================================================="
+echo "NEXT STEPS:"
+echo "=================================================="
 echo ""
-echo "To manually assign a user to the default household, run:"
-echo "docker compose exec db psql -U $DB_USER -d $DB_NAME -c \"UPDATE users SET household_id = 1 WHERE username = 'YOUR_USERNAME';\""
+echo "1. Create your admin user by running:"
+echo ""
+echo "   docker compose exec backend python -c \""
+echo "   from app.services.auth import create_user, hash_password"
+echo "   from app.core.database import SessionLocal"
+echo "   db = SessionLocal()"
+echo "   from app.models.models import User"
+echo "   user = User(username='peter', password_hash=hash_password('DEIN_PASSWORT'), display_name='Peter', household_id=1, is_admin=True)"
+echo "   db.add(user)"
+echo "   db.commit()"
+echo "   print('User created!')"
+echo "   \""
+echo ""
+echo "2. Your invite code is: PETER2024"
+echo "   Share this with Vera so she can register."
+echo ""
+echo "3. To create a new household for someone else:"
+echo "   docker compose exec db psql -U $DB_USER -d $DB_NAME -c \\"
+echo "   \"INSERT INTO households (name, invite_code) VALUES ('Anderer Haushalt', 'CODE1234');\""
+echo ""
