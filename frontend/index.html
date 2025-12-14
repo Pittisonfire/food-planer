@@ -1300,7 +1300,13 @@
                                         </span>
                                     )}
                                 </button>
-                                <button onClick={() => setActiveTab('shopping')}
+                                <button onClick={() => {
+                                    setActiveTab('shopping');
+                                    // Auto-generate if no categories yet and mealplan exists
+                                    if (shoppingCategories.length === 0 && mealPlan.length > 0 && !shoppingLoading) {
+                                        generateShoppingList('all');
+                                    }
+                                }}
                                     className={`px-4 py-2 rounded-lg font-medium transition whitespace-nowrap flex items-center gap-2 ${
                                         activeTab === 'shopping' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                                     }`}>
@@ -1573,7 +1579,12 @@
                                                 <><Icons.Sparkles /> Auto-Plan</>
                                             )}
                                         </button>
-                                        <button onClick={() => setActiveTab('shopping')}
+                                        <button onClick={() => {
+                                            setActiveTab('shopping');
+                                            if (shoppingCategories.length === 0 && mealPlan.length > 0 && !shoppingLoading) {
+                                                generateShoppingList('all');
+                                            }
+                                        }}
                                             className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 flex items-center gap-2 text-sm">
                                             <Icons.Cart /> Einkaufsliste
                                         </button>
