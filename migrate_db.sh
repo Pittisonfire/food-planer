@@ -1,0 +1,116 @@
+#!/bin/bash
+# Database Migration Script for Multi-Tenant Update
+# Run this AFTER deploying the new code
+
+echo "=== Food Planer Database Migration ==="
+echo "This will add multi-tenant support to the database."
+echo ""
+
+# Database credentials
+DB_USER="foodplaner_user"
+DB_PASS="foodplaner_password"
+DB_NAME="foodplaner"
+
+# Run migrations
+docker compose exec -T db psql -U $DB_USER -d $DB_NAME << 'EOF'
+
+-- Create households table
+CREATE TABLE IF NOT EXISTS households (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    invite_code VARCHAR(20) UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create users table
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(100) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    display_name VARCHAR(255),
+    household_id INTEGER NOT NULL REFERENCES households(id),
+    is_admin BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Add household_id to existing tables (if not exists)
+DO $$
+BEGIN
+    -- pantry_items
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pantry_items' AND column_name='household_id') THEN
+        ALTER TABLE pantry_items ADD COLUMN household_id INTEGER;
+    END IF;
+    
+    -- recipes
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='recipes' AND column_name='household_id') THEN
+        ALTER TABLE recipes ADD COLUMN household_id INTEGER;
+    END IF;
+    
+    -- meal_plans
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='meal_plans' AND column_name='household_id') THEN
+        ALTER TABLE meal_plans ADD COLUMN household_id INTEGER;
+    END IF;
+    
+    -- shopping_items
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='shopping_items' AND column_name='household_id') THEN
+        ALTER TABLE shopping_items ADD COLUMN household_id INTEGER;
+    END IF;
+    
+    -- recurring_meals
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='recurring_meals' AND column_name='household_id') THEN
+        ALTER TABLE recurring_meals ADD COLUMN household_id INTEGER;
+    END IF;
+    
+    -- taste_profile
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='taste_profile' AND column_name='household_id') THEN
+        ALTER TABLE taste_profile ADD COLUMN household_id INTEGER;
+    END IF;
+END $$;
+
+-- Create default household for existing data
+INSERT INTO households (id, name, invite_code) 
+VALUES (1, 'Default Household', 'DEFAULT123')
+ON CONFLICT (id) DO NOTHING;
+
+-- Update existing data to use default household
+UPDATE pantry_items SET household_id = 1 WHERE household_id IS NULL;
+UPDATE recipes SET household_id = 1 WHERE household_id IS NULL;
+UPDATE meal_plans SET household_id = 1 WHERE household_id IS NULL;
+UPDATE shopping_items SET household_id = 1 WHERE household_id IS NULL;
+UPDATE recurring_meals SET household_id = 1 WHERE household_id IS NULL;
+UPDATE taste_profile SET household_id = 1 WHERE household_id IS NULL;
+
+-- Make household_id NOT NULL after data is migrated
+ALTER TABLE pantry_items ALTER COLUMN household_id SET NOT NULL;
+ALTER TABLE recipes ALTER COLUMN household_id SET NOT NULL;
+ALTER TABLE meal_plans ALTER COLUMN household_id SET NOT NULL;
+ALTER TABLE shopping_items ALTER COLUMN household_id SET NOT NULL;
+ALTER TABLE recurring_meals ALTER COLUMN household_id SET NOT NULL;
+ALTER TABLE taste_profile ALTER COLUMN household_id SET NOT NULL;
+
+-- Create indexes
+CREATE INDEX IF NOT EXISTS idx_pantry_items_household ON pantry_items(household_id);
+CREATE INDEX IF NOT EXISTS idx_recipes_household ON recipes(household_id);
+CREATE INDEX IF NOT EXISTS idx_meal_plans_household ON meal_plans(household_id);
+CREATE INDEX IF NOT EXISTS idx_shopping_items_household ON shopping_items(household_id);
+CREATE INDEX IF NOT EXISTS idx_recurring_meals_household ON recurring_meals(household_id);
+CREATE INDEX IF NOT EXISTS idx_taste_profile_household ON taste_profile(household_id);
+CREATE INDEX IF NOT EXISTS idx_users_household ON users(household_id);
+
+-- Reset sequence for households
+SELECT setval('households_id_seq', (SELECT MAX(id) FROM households));
+
+COMMIT;
+
+EOF
+
+echo ""
+echo "Migration complete!"
+echo ""
+echo "IMPORTANT: Create your first user by registering in the app."
+echo "Your existing data has been assigned to 'Default Household' (ID: 1)."
+echo "After registering, your new user will need to be added to household 1"
+echo "to see the existing data."
+echo ""
+echo "To manually assign a user to the default household, run:"
+echo "docker compose exec db psql -U $DB_USER -d $DB_NAME -c \"UPDATE users SET household_id = 1 WHERE username = 'YOUR_USERNAME';\""
