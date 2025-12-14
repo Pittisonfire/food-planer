@@ -1,14 +1,32 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from datetime import date, timedelta
 
 from app.core.database import get_db
-from app.models.models import PantryItem, Recipe, MealPlan, ShoppingItem, TasteProfile, RecurringMeal
-from app.services import claude_ai
+from app.models.models import PantryItem, Recipe, MealPlan, ShoppingItem, TasteProfile, RecurringMeal, User, Household
+from app.services import claude_ai, auth
 
 router = APIRouter()
+
+
+# ============ Auth Dependency ============
+
+async def get_current_household(request: Request, db: Session = Depends(get_db)) -> int:
+    """Extract household_id from JWT token"""
+    auth_header = request.headers.get("Authorization")
+    
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Nicht eingeloggt")
+    
+    token = auth_header.replace("Bearer ", "")
+    payload = auth.decode_token(token)
+    
+    if not payload:
+        raise HTTPException(status_code=401, detail="Ungültiger oder abgelaufener Token")
+    
+    return payload["household_id"]
 
 
 # ============ Pydantic Schemas ============
@@ -34,30 +52,77 @@ class MealPlanMove(BaseModel):
     new_date: date
 
 
+class MealTypeChange(BaseModel):
+    meal_type: str
+
+
 class ShoppingItemCreate(BaseModel):
     name: str
+
+
+class ShoppingGenerateRequest(BaseModel):
+    dates: list[str] = []  # List of date strings (YYYY-MM-DD)
+
+
+class AutoPlanRequest(BaseModel):
+    days: int = 7
+    start_date: Optional[date] = None
+    meal_types: list[str] = ["lunch"]  # breakfast, lunch, dinner
+
+
+class RecurringMealCreate(BaseModel):
+    weekday: int  # 0=Monday, 6=Sunday
+    meal_type: str = "dinner"
+    recipe_id: Optional[int] = None
+    title: Optional[str] = None
+
+
+class TasteProfileUpdate(BaseModel):
+    favorite_cuisines: list[str] = []
+    favorite_ingredients: list[str] = []
+    disliked_ingredients: list[str] = []
+    time_preference: str = "mittel"  # schnell, mittel, aufwändig
+    diet_tendency: str = "flexitarisch"
 
 
 # ============ Recipe Endpoints ============
 
 @router.get("/recipes")
-async def get_saved_recipes(db: Session = Depends(get_db)):
+async def get_saved_recipes(
+    household_id: int = Depends(get_current_household),
+    db: Session = Depends(get_db)
+):
     """Get all saved recipes, favorites first"""
-    recipes = db.query(Recipe).order_by(Recipe.is_favorite.desc(), Recipe.created_at.desc()).all()
+    recipes = db.query(Recipe).filter(
+        Recipe.household_id == household_id
+    ).order_by(Recipe.is_favorite.desc(), Recipe.created_at.desc()).all()
     return recipes
 
 
 @router.get("/recipes/favorites")
-async def get_favorite_recipes(db: Session = Depends(get_db)):
+async def get_favorite_recipes(
+    household_id: int = Depends(get_current_household),
+    db: Session = Depends(get_db)
+):
     """Get only favorite recipes"""
-    recipes = db.query(Recipe).filter(Recipe.is_favorite == True).order_by(Recipe.created_at.desc()).all()
+    recipes = db.query(Recipe).filter(
+        Recipe.household_id == household_id,
+        Recipe.is_favorite == True
+    ).order_by(Recipe.created_at.desc()).all()
     return recipes
 
 
 @router.put("/recipes/{recipe_id}/favorite")
-async def toggle_favorite(recipe_id: int, db: Session = Depends(get_db)):
+async def toggle_favorite(
+    recipe_id: int,
+    household_id: int = Depends(get_current_household),
+    db: Session = Depends(get_db)
+):
     """Toggle favorite status of a recipe"""
-    recipe = db.query(Recipe).filter(Recipe.id == recipe_id).first()
+    recipe = db.query(Recipe).filter(
+        Recipe.id == recipe_id,
+        Recipe.household_id == household_id
+    ).first()
     if not recipe:
         raise HTTPException(status_code=404, detail="Rezept nicht gefunden")
     
@@ -68,24 +133,28 @@ async def toggle_favorite(recipe_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/recipes/search")
-async def search_recipes(search: RecipeSearch, db: Session = Depends(get_db)):
+async def search_recipes(
+    search: RecipeSearch,
+    household_id: int = Depends(get_current_household),
+    db: Session = Depends(get_db)
+):
     """Search recipes using Claude AI"""
-    
-    # Always use Claude AI for recipe suggestions
     recipes = await claude_ai.suggest_recipes(
         query=search.query,
         pantry_items=search.ingredients if search.ingredients else None,
         max_calories=search.max_calories,
         offset=search.offset
     )
-    
     return recipes
 
 
 @router.post("/recipes/instagram")
-async def import_from_text(data: RecipeTextImport, db: Session = Depends(get_db)):
+async def import_from_text(
+    data: RecipeTextImport,
+    household_id: int = Depends(get_current_household),
+    db: Session = Depends(get_db)
+):
     """Import recipe from pasted text (Instagram, etc.)"""
-    
     recipe_data = await claude_ai.parse_recipe_text(data.text)
     
     if not recipe_data:
@@ -93,6 +162,7 @@ async def import_from_text(data: RecipeTextImport, db: Session = Depends(get_db)
     
     # Save to database
     recipe = Recipe(
+        household_id=household_id,
         external_id=recipe_data.get("external_id"),
         source=recipe_data.get("source", "import"),
         title=recipe_data.get("title", "Importiertes Rezept"),
@@ -113,18 +183,24 @@ async def import_from_text(data: RecipeTextImport, db: Session = Depends(get_db)
 
 
 @router.post("/recipes/save")
-async def save_recipe(recipe_data: dict, db: Session = Depends(get_db)):
+async def save_recipe(
+    recipe_data: dict,
+    household_id: int = Depends(get_current_household),
+    db: Session = Depends(get_db)
+):
     """Save a recipe to the database"""
     
-    # Check if already exists (by external_id)
+    # Check if already exists (by external_id) for this household
     if recipe_data.get("external_id"):
         existing = db.query(Recipe).filter(
-            Recipe.external_id == recipe_data["external_id"]
+            Recipe.external_id == recipe_data["external_id"],
+            Recipe.household_id == household_id
         ).first()
         if existing:
             return existing
     
     recipe = Recipe(
+        household_id=household_id,
         external_id=recipe_data.get("external_id"),
         source=recipe_data.get("source", "spoonacular"),
         title=recipe_data.get("title", ""),
@@ -145,14 +221,24 @@ async def save_recipe(recipe_data: dict, db: Session = Depends(get_db)):
 
 
 @router.delete("/recipes/{recipe_id}")
-async def delete_recipe(recipe_id: int, db: Session = Depends(get_db)):
+async def delete_recipe(
+    recipe_id: int,
+    household_id: int = Depends(get_current_household),
+    db: Session = Depends(get_db)
+):
     """Delete a saved recipe"""
-    recipe = db.query(Recipe).filter(Recipe.id == recipe_id).first()
+    recipe = db.query(Recipe).filter(
+        Recipe.id == recipe_id,
+        Recipe.household_id == household_id
+    ).first()
     if not recipe:
         raise HTTPException(status_code=404, detail="Rezept nicht gefunden")
     
     # Also delete from meal plans
-    db.query(MealPlan).filter(MealPlan.recipe_id == recipe_id).delete()
+    db.query(MealPlan).filter(
+        MealPlan.recipe_id == recipe_id,
+        MealPlan.household_id == household_id
+    ).delete()
     db.delete(recipe)
     db.commit()
     
@@ -162,16 +248,25 @@ async def delete_recipe(recipe_id: int, db: Session = Depends(get_db)):
 # ============ Pantry Endpoints ============
 
 @router.get("/pantry")
-async def get_pantry(db: Session = Depends(get_db)):
+async def get_pantry(
+    household_id: int = Depends(get_current_household),
+    db: Session = Depends(get_db)
+):
     """Get all pantry items"""
-    items = db.query(PantryItem).order_by(PantryItem.name).all()
+    items = db.query(PantryItem).filter(
+        PantryItem.household_id == household_id
+    ).order_by(PantryItem.name).all()
     return items
 
 
 @router.post("/pantry")
-async def add_pantry_item(name: str, db: Session = Depends(get_db)):
+async def add_pantry_item(
+    name: str,
+    household_id: int = Depends(get_current_household),
+    db: Session = Depends(get_db)
+):
     """Add item to pantry"""
-    item = PantryItem(name=name)
+    item = PantryItem(household_id=household_id, name=name)
     db.add(item)
     db.commit()
     db.refresh(item)
@@ -179,9 +274,16 @@ async def add_pantry_item(name: str, db: Session = Depends(get_db)):
 
 
 @router.delete("/pantry/{item_id}")
-async def remove_pantry_item(item_id: int, db: Session = Depends(get_db)):
+async def remove_pantry_item(
+    item_id: int,
+    household_id: int = Depends(get_current_household),
+    db: Session = Depends(get_db)
+):
     """Remove item from pantry"""
-    item = db.query(PantryItem).filter(PantryItem.id == item_id).first()
+    item = db.query(PantryItem).filter(
+        PantryItem.id == item_id,
+        PantryItem.household_id == household_id
+    ).first()
     if item:
         db.delete(item)
         db.commit()
@@ -193,18 +295,18 @@ async def remove_pantry_item(item_id: int, db: Session = Depends(get_db)):
 @router.get("/mealplan")
 async def get_meal_plan(
     start_date: Optional[date] = None,
+    household_id: int = Depends(get_current_household),
     db: Session = Depends(get_db)
 ):
     """Get meal plan for two weeks"""
     if not start_date:
-        # Default to current week (Monday)
         today = date.today()
         start_date = today - timedelta(days=today.weekday())
     
-    # Two weeks instead of one
     end_date = start_date + timedelta(days=13)
     
     plans = db.query(MealPlan).filter(
+        MealPlan.household_id == household_id,
         MealPlan.date >= start_date,
         MealPlan.date <= end_date
     ).all()
@@ -234,15 +336,21 @@ async def get_meal_plan(
 
 
 @router.post("/mealplan")
-async def add_to_meal_plan(data: MealPlanCreate, db: Session = Depends(get_db)):
+async def add_to_meal_plan(
+    data: MealPlanCreate,
+    household_id: int = Depends(get_current_household),
+    db: Session = Depends(get_db)
+):
     """Add recipe to meal plan"""
-    
-    # Check if recipe exists
-    recipe = db.query(Recipe).filter(Recipe.id == data.recipe_id).first()
+    recipe = db.query(Recipe).filter(
+        Recipe.id == data.recipe_id,
+        Recipe.household_id == household_id
+    ).first()
     if not recipe:
         raise HTTPException(status_code=404, detail="Rezept nicht gefunden")
     
     plan = MealPlan(
+        household_id=household_id,
         recipe_id=data.recipe_id,
         date=data.date,
         meal_type=data.meal_type
@@ -259,17 +367,29 @@ async def add_to_meal_plan(data: MealPlanCreate, db: Session = Depends(get_db)):
         "recipe": {
             "id": recipe.id,
             "title": recipe.title,
-            "calories": recipe.calories
+            "image_url": recipe.image_url,
+            "calories": recipe.calories,
+            "ready_in_minutes": recipe.ready_in_minutes,
+            "ingredients": recipe.ingredients,
+            "instructions": recipe.instructions
         }
     }
 
 
-@router.put("/mealplan/{plan_id}/move")
-async def move_meal(plan_id: int, data: MealPlanMove, db: Session = Depends(get_db)):
-    """Move meal to different day"""
-    plan = db.query(MealPlan).filter(MealPlan.id == plan_id).first()
+@router.put("/mealplan/{plan_id}")
+async def move_meal_plan(
+    plan_id: int,
+    data: MealPlanMove,
+    household_id: int = Depends(get_current_household),
+    db: Session = Depends(get_db)
+):
+    """Move a meal to a different date"""
+    plan = db.query(MealPlan).filter(
+        MealPlan.id == plan_id,
+        MealPlan.household_id == household_id
+    ).first()
     if not plan:
-        raise HTTPException(status_code=404, detail="Eintrag nicht gefunden")
+        raise HTTPException(status_code=404, detail="Meal plan nicht gefunden")
     
     plan.date = data.new_date
     db.commit()
@@ -277,16 +397,20 @@ async def move_meal(plan_id: int, data: MealPlanMove, db: Session = Depends(get_
     return {"status": "moved", "new_date": data.new_date.isoformat()}
 
 
-class MealTypeChange(BaseModel):
-    meal_type: str
-
-
 @router.put("/mealplan/{plan_id}/type")
-async def change_meal_type(plan_id: int, data: MealTypeChange, db: Session = Depends(get_db)):
+async def change_meal_type(
+    plan_id: int,
+    data: MealTypeChange,
+    household_id: int = Depends(get_current_household),
+    db: Session = Depends(get_db)
+):
     """Change meal type (breakfast, lunch, dinner, snack)"""
-    plan = db.query(MealPlan).filter(MealPlan.id == plan_id).first()
+    plan = db.query(MealPlan).filter(
+        MealPlan.id == plan_id,
+        MealPlan.household_id == household_id
+    ).first()
     if not plan:
-        raise HTTPException(status_code=404, detail="Eintrag nicht gefunden")
+        raise HTTPException(status_code=404, detail="Meal plan nicht gefunden")
     
     plan.meal_type = data.meal_type
     db.commit()
@@ -295,49 +419,62 @@ async def change_meal_type(plan_id: int, data: MealTypeChange, db: Session = Dep
 
 
 @router.delete("/mealplan/{plan_id}")
-async def remove_from_meal_plan(plan_id: int, db: Session = Depends(get_db)):
-    """Remove from meal plan"""
-    plan = db.query(MealPlan).filter(MealPlan.id == plan_id).first()
-    if plan:
-        db.delete(plan)
-        db.commit()
+async def remove_from_meal_plan(
+    plan_id: int,
+    household_id: int = Depends(get_current_household),
+    db: Session = Depends(get_db)
+):
+    """Remove recipe from meal plan"""
+    plan = db.query(MealPlan).filter(
+        MealPlan.id == plan_id,
+        MealPlan.household_id == household_id
+    ).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Meal plan nicht gefunden")
+    
+    db.delete(plan)
+    db.commit()
+    
     return {"status": "deleted"}
 
 
 # ============ Shopping List Endpoints ============
 
 @router.get("/shopping")
-async def get_shopping_list(db: Session = Depends(get_db)):
+async def get_shopping_list(
+    household_id: int = Depends(get_current_household),
+    db: Session = Depends(get_db)
+):
     """Get shopping list"""
-    items = db.query(ShoppingItem).order_by(ShoppingItem.checked, ShoppingItem.name).all()
+    items = db.query(ShoppingItem).filter(
+        ShoppingItem.household_id == household_id
+    ).order_by(ShoppingItem.checked, ShoppingItem.name).all()
     return items
-
-
-class ShoppingGenerateRequest(BaseModel):
-    dates: list[str] = []  # List of date strings (YYYY-MM-DD)
 
 
 @router.post("/shopping/generate")
 async def generate_shopping_list(
     request: ShoppingGenerateRequest = None,
+    household_id: int = Depends(get_current_household),
     db: Session = Depends(get_db)
 ):
-    """Generate shopping list from meal plan for specific dates, excluding pantry items"""
-    
-    # If no dates provided, use current and next week
+    """Generate shopping list from meal plan"""
     if not request or not request.dates:
         today = date.today()
-        start_date = today - timedelta(days=today.weekday())  # Monday
-        end_date = start_date + timedelta(days=13)  # Two weeks
+        start_date = today - timedelta(days=today.weekday())
+        end_date = start_date + timedelta(days=13)
         
         plans = db.query(MealPlan).filter(
+            MealPlan.household_id == household_id,
             MealPlan.date >= start_date,
             MealPlan.date <= end_date
         ).all()
     else:
-        # Convert string dates to date objects
         date_objects = [date.fromisoformat(d) for d in request.dates]
-        plans = db.query(MealPlan).filter(MealPlan.date.in_(date_objects)).all()
+        plans = db.query(MealPlan).filter(
+            MealPlan.household_id == household_id,
+            MealPlan.date.in_(date_objects)
+        ).all()
     
     # Collect all ingredients
     all_ingredients = set()
@@ -348,38 +485,44 @@ async def generate_shopping_list(
                 all_ingredients.add(ingredient)
     
     # Get pantry items to exclude
-    pantry_items = db.query(PantryItem).all()
+    pantry_items = db.query(PantryItem).filter(
+        PantryItem.household_id == household_id
+    ).all()
     pantry_names = [p.name.lower() for p in pantry_items]
     
-    # Filter out ingredients that match pantry items
     def is_in_pantry(ingredient: str) -> bool:
         ingredient_lower = ingredient.lower()
         for pantry_name in pantry_names:
-            # Check if pantry item is contained in ingredient or vice versa
             if pantry_name in ingredient_lower or ingredient_lower in pantry_name:
                 return True
         return False
     
     filtered_ingredients = [ing for ing in all_ingredients if not is_in_pantry(ing)]
     
-    # Clear existing shopping list
-    db.query(ShoppingItem).delete()
+    # Clear existing shopping list for this household
+    db.query(ShoppingItem).filter(ShoppingItem.household_id == household_id).delete()
     
     # Add new items
     for ingredient in sorted(filtered_ingredients):
-        item = ShoppingItem(name=ingredient)
+        item = ShoppingItem(household_id=household_id, name=ingredient)
         db.add(item)
     
     db.commit()
     
-    items = db.query(ShoppingItem).order_by(ShoppingItem.name).all()
+    items = db.query(ShoppingItem).filter(
+        ShoppingItem.household_id == household_id
+    ).order_by(ShoppingItem.name).all()
     return items
 
 
 @router.post("/shopping")
-async def add_shopping_item(data: ShoppingItemCreate, db: Session = Depends(get_db)):
+async def add_shopping_item(
+    data: ShoppingItemCreate,
+    household_id: int = Depends(get_current_household),
+    db: Session = Depends(get_db)
+):
     """Add item to shopping list"""
-    item = ShoppingItem(name=data.name)
+    item = ShoppingItem(household_id=household_id, name=data.name)
     db.add(item)
     db.commit()
     db.refresh(item)
@@ -387,9 +530,16 @@ async def add_shopping_item(data: ShoppingItemCreate, db: Session = Depends(get_
 
 
 @router.put("/shopping/{item_id}/toggle")
-async def toggle_shopping_item(item_id: int, db: Session = Depends(get_db)):
+async def toggle_shopping_item(
+    item_id: int,
+    household_id: int = Depends(get_current_household),
+    db: Session = Depends(get_db)
+):
     """Toggle checked status"""
-    item = db.query(ShoppingItem).filter(ShoppingItem.id == item_id).first()
+    item = db.query(ShoppingItem).filter(
+        ShoppingItem.id == item_id,
+        ShoppingItem.household_id == household_id
+    ).first()
     if not item:
         raise HTTPException(status_code=404, detail="Item nicht gefunden")
     
@@ -400,9 +550,16 @@ async def toggle_shopping_item(item_id: int, db: Session = Depends(get_db)):
 
 
 @router.delete("/shopping/{item_id}")
-async def delete_shopping_item(item_id: int, db: Session = Depends(get_db)):
+async def delete_shopping_item(
+    item_id: int,
+    household_id: int = Depends(get_current_household),
+    db: Session = Depends(get_db)
+):
     """Delete shopping item"""
-    item = db.query(ShoppingItem).filter(ShoppingItem.id == item_id).first()
+    item = db.query(ShoppingItem).filter(
+        ShoppingItem.id == item_id,
+        ShoppingItem.household_id == household_id
+    ).first()
     if item:
         db.delete(item)
         db.commit()
@@ -410,9 +567,12 @@ async def delete_shopping_item(item_id: int, db: Session = Depends(get_db)):
 
 
 @router.delete("/shopping")
-async def clear_shopping_list(db: Session = Depends(get_db)):
+async def clear_shopping_list(
+    household_id: int = Depends(get_current_household),
+    db: Session = Depends(get_db)
+):
     """Clear entire shopping list"""
-    db.query(ShoppingItem).delete()
+    db.query(ShoppingItem).filter(ShoppingItem.household_id == household_id).delete()
     db.commit()
     return {"status": "cleared"}
 
@@ -420,9 +580,14 @@ async def clear_shopping_list(db: Session = Depends(get_db)):
 # ============ Taste Profile Endpoints ============
 
 @router.get("/taste-profile")
-async def get_taste_profile(db: Session = Depends(get_db)):
+async def get_taste_profile(
+    household_id: int = Depends(get_current_household),
+    db: Session = Depends(get_db)
+):
     """Get the current taste profile"""
-    profile = db.query(TasteProfile).first()
+    profile = db.query(TasteProfile).filter(
+        TasteProfile.household_id == household_id
+    ).first()
     if not profile:
         return {
             "profile_data": {
@@ -437,20 +602,58 @@ async def get_taste_profile(db: Session = Depends(get_db)):
     return {"profile_data": profile.profile_data}
 
 
+@router.post("/taste-profile/update")
+async def update_taste_profile(
+    data: TasteProfileUpdate,
+    household_id: int = Depends(get_current_household),
+    db: Session = Depends(get_db)
+):
+    """Manually update taste profile"""
+    profile = db.query(TasteProfile).filter(
+        TasteProfile.household_id == household_id
+    ).first()
+    
+    profile_data = {
+        "favorite_cuisines": data.favorite_cuisines,
+        "favorite_ingredients": data.favorite_ingredients,
+        "possible_dislikes": data.disliked_ingredients,
+        "time_preference": data.time_preference,
+        "diet_tendency": data.diet_tendency,
+        "summary": f"Profil manuell erstellt. Lieblingszutaten: {', '.join(data.favorite_ingredients[:3]) if data.favorite_ingredients else 'Keine'}."
+    }
+    
+    if profile:
+        profile.profile_data = profile_data
+    else:
+        profile = TasteProfile(household_id=household_id, profile_data=profile_data)
+        db.add(profile)
+    
+    db.commit()
+    return {"profile_data": profile_data}
+
+
 @router.post("/taste-profile/analyze")
-async def analyze_taste_profile(db: Session = Depends(get_db)):
+async def analyze_taste_profile(
+    household_id: int = Depends(get_current_household),
+    db: Session = Depends(get_db)
+):
     """Analyze taste profile from recipe history"""
+    from sqlalchemy import desc
     
     # Get favorite recipes
-    favorites = db.query(Recipe).filter(Recipe.is_favorite == True).all()
+    favorites = db.query(Recipe).filter(
+        Recipe.household_id == household_id,
+        Recipe.is_favorite == True
+    ).all()
     favorite_dicts = [
         {"title": r.title, "ingredients": r.ingredients or []}
         for r in favorites
     ]
     
     # Get cooked recipes (from meal plan)
-    from sqlalchemy import desc
-    meal_plans = db.query(MealPlan).order_by(desc(MealPlan.date)).limit(50).all()
+    meal_plans = db.query(MealPlan).filter(
+        MealPlan.household_id == household_id
+    ).order_by(desc(MealPlan.date)).limit(50).all()
     recipe_ids = [mp.recipe_id for mp in meal_plans]
     cooked_recipes = db.query(Recipe).filter(Recipe.id.in_(recipe_ids)).all() if recipe_ids else []
     cooked_dicts = [
@@ -462,11 +665,13 @@ async def analyze_taste_profile(db: Session = Depends(get_db)):
     profile_data = await claude_ai.analyze_taste_profile(favorite_dicts, cooked_dicts)
     
     # Save or update profile
-    profile = db.query(TasteProfile).first()
+    profile = db.query(TasteProfile).filter(
+        TasteProfile.household_id == household_id
+    ).first()
     if profile:
         profile.profile_data = profile_data
     else:
-        profile = TasteProfile(profile_data=profile_data)
+        profile = TasteProfile(household_id=household_id, profile_data=profile_data)
         db.add(profile)
     
     db.commit()
@@ -474,24 +679,25 @@ async def analyze_taste_profile(db: Session = Depends(get_db)):
     return {"profile_data": profile_data}
 
 
-class AutoPlanRequest(BaseModel):
-    days: int = 7
-    start_date: Optional[date] = None
-    meal_types: list[str] = ["lunch"]  # breakfast, lunch, dinner
-
-
 @router.post("/mealplan/auto-generate")
-async def auto_generate_mealplan(request: AutoPlanRequest, db: Session = Depends(get_db)):
+async def auto_generate_mealplan(
+    request: AutoPlanRequest,
+    household_id: int = Depends(get_current_household),
+    db: Session = Depends(get_db)
+):
     """Auto-generate a meal plan based on taste profile"""
     
     # Get taste profile
-    profile = db.query(TasteProfile).first()
+    profile = db.query(TasteProfile).filter(
+        TasteProfile.household_id == household_id
+    ).first()
     profile_data = profile.profile_data if profile else {}
     
-    # Get existing plan for the period (to avoid duplicates)
+    # Get existing plan for the period
     start = request.start_date or date.today()
     end = start + timedelta(days=request.days)
     existing_plans = db.query(MealPlan).filter(
+        MealPlan.household_id == household_id,
         MealPlan.date >= start,
         MealPlan.date < end
     ).all()
@@ -501,16 +707,18 @@ async def auto_generate_mealplan(request: AutoPlanRequest, db: Session = Depends
     existing_dicts = [{"title": r.title} for r in existing_recipes]
     
     # Get pantry items
-    pantry = db.query(PantryItem).all()
+    pantry = db.query(PantryItem).filter(
+        PantryItem.household_id == household_id
+    ).all()
     pantry_items = [p.name for p in pantry]
     
-    # Calculate total recipes needed (days * meal_types)
+    # Calculate total recipes needed
     total_recipes_needed = request.days * len(request.meal_types)
     
     # Generate recipes with Claude
     recipes = await claude_ai.generate_week_plan(
         taste_profile=profile_data,
-        days=total_recipes_needed,  # Get enough recipes for all meal types
+        days=total_recipes_needed,
         existing_plan=existing_dicts,
         pantry_items=pantry_items,
         meal_types=request.meal_types
@@ -527,7 +735,6 @@ async def auto_generate_mealplan(request: AutoPlanRequest, db: Session = Depends
         current_date = start + timedelta(days=day_offset)
         
         for meal_type in request.meal_types:
-            # Check if this slot already has a meal
             slot_has_meal = any(
                 mp.date == current_date and mp.meal_type == meal_type 
                 for mp in existing_plans
@@ -541,6 +748,7 @@ async def auto_generate_mealplan(request: AutoPlanRequest, db: Session = Depends
             
             # Create recipe
             recipe = Recipe(
+                household_id=household_id,
                 title=recipe_data.get("title", "Unbekannt"),
                 calories=recipe_data.get("calories"),
                 ready_in_minutes=recipe_data.get("ready_in_minutes"),
@@ -552,10 +760,11 @@ async def auto_generate_mealplan(request: AutoPlanRequest, db: Session = Depends
                 tags=recipe_data.get("tags", [])
             )
             db.add(recipe)
-            db.flush()  # Get the ID
+            db.flush()
             
             # Create meal plan entry
             meal_plan = MealPlan(
+                household_id=household_id,
                 recipe_id=recipe.id,
                 date=current_date,
                 meal_type=meal_type
@@ -579,17 +788,15 @@ async def auto_generate_mealplan(request: AutoPlanRequest, db: Session = Depends
 
 # ============ Recurring Meals Endpoints ============
 
-class RecurringMealCreate(BaseModel):
-    weekday: int  # 0=Monday, 6=Sunday
-    meal_type: str = "dinner"
-    recipe_id: Optional[int] = None
-    title: Optional[str] = None
-
-
 @router.get("/recurring-meals")
-async def get_recurring_meals(db: Session = Depends(get_db)):
+async def get_recurring_meals(
+    household_id: int = Depends(get_current_household),
+    db: Session = Depends(get_db)
+):
     """Get all recurring meal rules"""
-    meals = db.query(RecurringMeal).order_by(RecurringMeal.weekday).all()
+    meals = db.query(RecurringMeal).filter(
+        RecurringMeal.household_id == household_id
+    ).order_by(RecurringMeal.weekday).all()
     result = []
     for meal in meals:
         recipe = None
@@ -611,9 +818,14 @@ async def get_recurring_meals(db: Session = Depends(get_db)):
 
 
 @router.post("/recurring-meals")
-async def create_recurring_meal(data: RecurringMealCreate, db: Session = Depends(get_db)):
+async def create_recurring_meal(
+    data: RecurringMealCreate,
+    household_id: int = Depends(get_current_household),
+    db: Session = Depends(get_db)
+):
     """Create a new recurring meal rule"""
     meal = RecurringMeal(
+        household_id=household_id,
         weekday=data.weekday,
         meal_type=data.meal_type,
         recipe_id=data.recipe_id,
@@ -626,9 +838,16 @@ async def create_recurring_meal(data: RecurringMealCreate, db: Session = Depends
 
 
 @router.delete("/recurring-meals/{meal_id}")
-async def delete_recurring_meal(meal_id: int, db: Session = Depends(get_db)):
+async def delete_recurring_meal(
+    meal_id: int,
+    household_id: int = Depends(get_current_household),
+    db: Session = Depends(get_db)
+):
     """Delete a recurring meal rule"""
-    meal = db.query(RecurringMeal).filter(RecurringMeal.id == meal_id).first()
+    meal = db.query(RecurringMeal).filter(
+        RecurringMeal.id == meal_id,
+        RecurringMeal.household_id == household_id
+    ).first()
     if meal:
         db.delete(meal)
         db.commit()
@@ -636,9 +855,14 @@ async def delete_recurring_meal(meal_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/recurring-meals/apply")
-async def apply_recurring_meals(db: Session = Depends(get_db)):
+async def apply_recurring_meals(
+    household_id: int = Depends(get_current_household),
+    db: Session = Depends(get_db)
+):
     """Apply recurring meal rules to current and next week"""
-    recurring = db.query(RecurringMeal).all()
+    recurring = db.query(RecurringMeal).filter(
+        RecurringMeal.household_id == household_id
+    ).all()
     if not recurring:
         return {"status": "no_rules", "applied": 0}
     
@@ -646,16 +870,15 @@ async def apply_recurring_meals(db: Session = Depends(get_db)):
     monday = today - timedelta(days=today.weekday())
     
     applied = 0
-    for week_offset in [0, 1]:  # This week and next week
+    for week_offset in [0, 1]:
         for rule in recurring:
             target_date = monday + timedelta(days=week_offset * 7 + rule.weekday)
             
-            # Skip past dates
             if target_date < today:
                 continue
             
-            # Check if there's already a meal for this date/type
             existing = db.query(MealPlan).filter(
+                MealPlan.household_id == household_id,
                 MealPlan.date == target_date,
                 MealPlan.meal_type == rule.meal_type
             ).first()
@@ -663,9 +886,9 @@ async def apply_recurring_meals(db: Session = Depends(get_db)):
             if existing:
                 continue
             
-            # If rule has a recipe, add it
             if rule.recipe_id:
                 plan = MealPlan(
+                    household_id=household_id,
                     recipe_id=rule.recipe_id,
                     date=target_date,
                     meal_type=rule.meal_type
