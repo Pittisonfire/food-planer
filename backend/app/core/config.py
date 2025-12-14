@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+import secrets
 
 
 class Settings(BaseSettings):
@@ -12,6 +13,11 @@ class Settings(BaseSettings):
     
     # App Settings
     daily_calorie_target: int = 1800
+    
+    # Auth Settings
+    jwt_secret: str = secrets.token_hex(32)  # Generate random secret if not set
+    jwt_algorithm: str = "HS256"
+    jwt_expire_days: int = 30
     
     class Config:
         env_file = ".env"
