@@ -40,6 +40,7 @@ class RecipeSearch(BaseModel):
 
 class RecipeTextImport(BaseModel):
     text: str  # Raw recipe text to parse
+    source_url: Optional[str] = None  # Link to original video/post
 
 
 class MealPlanCreate(BaseModel):
@@ -160,6 +161,9 @@ async def import_from_text(
     if not recipe_data:
         raise HTTPException(status_code=400, detail="Konnte Rezept nicht aus Text extrahieren")
     
+    # Use explicit source_url if provided, otherwise use parsed one
+    source_url = data.source_url or recipe_data.get("source_url")
+    
     # Save to database
     recipe = Recipe(
         household_id=household_id,
@@ -172,7 +176,7 @@ async def import_from_text(
         servings=recipe_data.get("servings", 2),
         ingredients=recipe_data.get("ingredients", []),
         instructions=recipe_data.get("instructions", []),
-        source_url=recipe_data.get("source_url")
+        source_url=source_url
     )
     
     db.add(recipe)
