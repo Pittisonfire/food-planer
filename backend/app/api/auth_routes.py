@@ -32,6 +32,7 @@ class UserResponse(BaseModel):
     household_id: int
     household_name: str
     is_admin: bool
+    daily_calorie_target: int = 1800
 
     class Config:
         from_attributes = True
@@ -40,6 +41,10 @@ class UserResponse(BaseModel):
 class TokenResponse(BaseModel):
     token: str
     user: UserResponse
+
+
+class CalorieTargetUpdate(BaseModel):
+    daily_calorie_target: int
 
 
 # ============ Auth Endpoints ============
@@ -83,7 +88,8 @@ async def register(data: RegisterRequest, db: Session = Depends(get_db)):
             display_name=user.display_name,
             household_id=household.id,
             household_name=household.name,
-            is_admin=user.is_admin
+            is_admin=user.is_admin,
+            daily_calorie_target=user.daily_calorie_target or 1800
         )
     )
 
@@ -109,7 +115,8 @@ async def login(data: LoginRequest, db: Session = Depends(get_db)):
             display_name=user.display_name,
             household_id=user.household_id,
             household_name=household.name if household else "Unknown",
-            is_admin=user.is_admin
+            is_admin=user.is_admin,
+            daily_calorie_target=user.daily_calorie_target or 1800
         )
     )
 
@@ -141,7 +148,44 @@ async def get_current_user(request: Request, db: Session = Depends(get_db)):
         display_name=user.display_name,
         household_id=user.household_id,
         household_name=household.name if household else "Unknown",
-        is_admin=user.is_admin
+        is_admin=user.is_admin,
+        daily_calorie_target=user.daily_calorie_target or 1800
+    )
+
+
+@router.put("/me/calories", response_model=UserResponse)
+async def update_calorie_target(data: CalorieTargetUpdate, request: Request, db: Session = Depends(get_db)):
+    """Update user's daily calorie target"""
+    
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Nicht eingeloggt")
+    
+    token = auth_header.replace("Bearer ", "")
+    payload = auth.decode_token(token)
+    
+    if not payload:
+        raise HTTPException(status_code=401, detail="Ungültiger Token")
+    
+    user = auth.get_user_by_id(db, payload["user_id"])
+    if not user:
+        raise HTTPException(status_code=401, detail="Benutzer nicht gefunden")
+    
+    # Update calorie target
+    user.daily_calorie_target = data.daily_calorie_target
+    db.commit()
+    db.refresh(user)
+    
+    household = db.query(Household).filter(Household.id == user.household_id).first()
+    
+    return UserResponse(
+        id=user.id,
+        username=user.username,
+        display_name=user.display_name,
+        household_id=user.household_id,
+        household_name=household.name if household else "Unknown",
+        is_admin=user.is_admin,
+        daily_calorie_target=user.daily_calorie_target or 1800
     )
 
 
