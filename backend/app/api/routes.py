@@ -748,6 +748,19 @@ async def search_offers(
     return {"offers": offers, "postal_code": household.postal_code}
 
 
+@router.delete("/shopping/cache")
+async def clear_ingredient_cache(
+    household_id: int = Depends(get_current_household),
+    db: Session = Depends(get_db)
+):
+    """Clear ingredient cache to force re-sorting"""
+    deleted = db.query(IngredientCache).filter(
+        IngredientCache.household_id == household_id
+    ).delete()
+    db.commit()
+    return {"deleted": deleted, "message": "Cache gelöscht - Liste wird neu sortiert"}
+
+
 @router.post("/shopping")
 async def add_shopping_item(
     data: ShoppingItemCreate,
