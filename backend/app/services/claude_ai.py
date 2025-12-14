@@ -823,9 +823,7 @@ async def search_supermarket_offers(
 ) -> list[dict]:
     """Search for current supermarket offers for given items"""
     
-    client = get_claude_client()
-    
-    # Select top items to search (expensive ones)
+    # Select top items to search (expensive ones like meat, cheese, fish)
     items_to_search = items[:8]  # Max 8 items to keep it fast
     
     search_query = f"""Suche aktuelle Supermarkt-Angebote für diese Woche in PLZ {postal_code}.
@@ -835,29 +833,47 @@ Supermärkte: {', '.join(supermarkets)}
 Artikel die ich suche:
 {chr(10).join(f'- {item}' for item in items_to_search)}
 
-Finde aktuelle Angebote (diese Woche gültig) für diese Artikel. 
-Suche auf Seiten wie kaufDA, Marktguru, oder direkt bei den Supermärkten."""
+Finde aktuelle Angebote (diese Woche gültig) für diese Artikel.
+Suche auf Seiten wie kaufDA, Marktguru, oder direkt bei den Supermärkten (lidl.de, aldi-nord.de, rewe.de)."""
 
     try:
-        message = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=2000,
-            tools=[{
-                "type": "web_search_20250305",
-                "name": "web_search"
-            }],
-            messages=[
-                {"role": "user", "content": search_query}
-            ]
-        )
+        # Use httpx for web search beta
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": settings.anthropic_api_key,
+                    "anthropic-version": "2023-06-01",
+                    "anthropic-beta": "web-search-2025-03-05",
+                    "content-type": "application/json"
+                },
+                json={
+                    "model": "claude-sonnet-4-20250514",
+                    "max_tokens": 3000,
+                    "tools": [{
+                        "type": "web_search_20250305",
+                        "name": "web_search"
+                    }],
+                    "messages": [
+                        {"role": "user", "content": search_query}
+                    ]
+                }
+            )
+            
+            result = response.json()
+            
+            # Extract text from response
+            response_text = ""
+            for block in result.get("content", []):
+                if block.get("type") == "text":
+                    response_text += block.get("text", "")
         
-        # Extract the response and parse offers
-        response_text = ""
-        for block in message.content:
-            if hasattr(block, 'text'):
-                response_text += block.text
+        if not response_text:
+            return []
         
         # Now parse the offers with another Claude call
+        parse_client = get_claude_client()
+        
         parse_prompt = f"""Extrahiere die gefundenen Angebote aus diesem Text und gib sie als JSON zurück.
 
 TEXT:
@@ -879,7 +895,7 @@ Antworte NUR mit einem JSON-Array in diesem Format:
 Falls keine Angebote gefunden wurden, antworte mit: []
 Antworte NUR mit validem JSON:"""
 
-        parse_message = client.messages.create(
+        parse_message = parse_client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=2000,
             messages=[
