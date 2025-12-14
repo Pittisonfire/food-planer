@@ -215,9 +215,46 @@ async def get_household_info(request: Request, db: Session = Depends(get_db)):
     return {
         "id": household.id,
         "name": household.name,
+        "postal_code": household.postal_code,
         "invite_code": household.invite_code if user.is_admin else None,
         "members": [
             {"id": u.id, "username": u.username, "display_name": u.display_name, "is_admin": u.is_admin}
             for u in users
         ]
     }
+
+
+class HouseholdUpdate(BaseModel):
+    postal_code: Optional[str] = None
+
+
+@router.put("/household")
+async def update_household(data: HouseholdUpdate, request: Request, db: Session = Depends(get_db)):
+    """Update household settings (admin only)"""
+    
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Nicht eingeloggt")
+    
+    token = auth_header.replace("Bearer ", "")
+    payload = auth.decode_token(token)
+    
+    if not payload:
+        raise HTTPException(status_code=401, detail="Ungültiger Token")
+    
+    user = auth.get_user_by_id(db, payload["user_id"])
+    if not user:
+        raise HTTPException(status_code=401, detail="Benutzer nicht gefunden")
+    
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Nur Admins können Haushalt-Einstellungen ändern")
+    
+    household = db.query(Household).filter(Household.id == user.household_id).first()
+    
+    if data.postal_code is not None:
+        household.postal_code = data.postal_code
+    
+    db.commit()
+    db.refresh(household)
+    
+    return {"status": "updated", "postal_code": household.postal_code}
