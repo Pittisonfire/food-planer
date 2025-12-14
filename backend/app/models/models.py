@@ -81,6 +81,7 @@ class ShoppingItem(Base):
     id = Column(Integer, primary_key=True, index=True)
     household_id = Column(Integer, ForeignKey("households.id"), nullable=False, index=True)
     name = Column(String(500), nullable=False)
+    category = Column(String(100), default="Sonstiges")  # Category for grouping
     checked = Column(Boolean, default=False)
     created_at = Column(DateTime, server_default=func.now())
 
