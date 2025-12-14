@@ -904,6 +904,11 @@ async def search_supermarket_offers(
                         if retailer is None:
                             continue
                         
+                        # Filter by preferred supermarkets
+                        if not any(s.lower() in retailer.lower() or retailer.lower() in s.lower() 
+                                   for s in supermarkets):
+                            continue
+                        
                         # Parse validity dates
                         valid_from = ""
                         valid_to = ""
