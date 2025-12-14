@@ -1190,11 +1190,25 @@
 
             const getOfferForItem = (itemName) => {
                 // Find matching offer for this item
+                if (!itemName || shoppingOffers.length === 0) return null;
+                
                 const itemLower = itemName.toLowerCase();
-                return shoppingOffers.find(offer => 
-                    itemLower.includes(offer.item?.toLowerCase()) || 
-                    offer.item?.toLowerCase().includes(itemLower.split(' ').pop())
-                );
+                const itemWords = itemLower.split(/\s+/).filter(w => w.length > 2);
+                
+                return shoppingOffers.find(offer => {
+                    if (!offer.item) return false;
+                    const offerLower = offer.item.toLowerCase();
+                    
+                    // Direct match
+                    if (itemLower.includes(offerLower) || offerLower.includes(itemLower)) {
+                        return true;
+                    }
+                    
+                    // Check if any significant word matches
+                    return itemWords.some(word => 
+                        offerLower.includes(word) || word.includes(offerLower)
+                    );
+                });
             };
 
             const getDayCalories = (dateStr) => {
@@ -2010,16 +2024,29 @@
                                                                 const dbItem = shoppingList.find(i => i.name.includes(item.name));
                                                                 const isChecked = dbItem?.checked || false;
                                                                 const itemId = dbItem?.id;
+                                                                const offer = getOfferForItem(item.name);
                                                                 return (
                                                                     <div key={idx} 
                                                                         onClick={() => itemId && toggleShoppingItem(itemId)}
-                                                                        className={`px-4 py-3 flex items-center gap-3 cursor-pointer hover:bg-gray-50 transition ${isChecked ? 'bg-green-50' : ''}`}>
+                                                                        className={`px-4 py-3 flex items-center gap-3 cursor-pointer hover:bg-gray-50 transition ${isChecked ? 'bg-green-50' : ''} ${offer && !isChecked ? 'bg-yellow-50 border-l-4 border-yellow-400' : ''}`}>
                                                                         <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition flex-shrink-0 ${isChecked ? 'bg-green-500 border-green-500' : 'border-gray-300'}`}>
                                                                             {isChecked && <Icons.Check />}
                                                                         </div>
-                                                                        <span className={`flex-1 ${isChecked ? 'line-through text-gray-400' : 'text-gray-700'}`}>
-                                                                            <span className="font-medium">{item.amount}</span> {item.name}
-                                                                        </span>
+                                                                        <div className="flex-1">
+                                                                            <span className={`${isChecked ? 'line-through text-gray-400' : 'text-gray-700'}`}>
+                                                                                <span className="font-medium">{item.amount}</span> {item.name}
+                                                                            </span>
+                                                                            {offer && !isChecked && (
+                                                                                <div className="flex items-center gap-2 mt-1">
+                                                                                    <span className="text-xs bg-yellow-400 text-yellow-900 px-2 py-0.5 rounded-full font-medium">
+                                                                                        🏷️ {offer.supermarket} {offer.price}
+                                                                                    </span>
+                                                                                    {offer.valid_until && (
+                                                                                        <span className="text-xs text-gray-400">bis {offer.valid_until}</span>
+                                                                                    )}
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
                                                                     </div>
                                                                 );
                                                             })}
