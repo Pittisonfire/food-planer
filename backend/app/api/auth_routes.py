@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 
 from app.core.database import get_db
 from app.models.models import User, Household
@@ -230,7 +230,7 @@ async def get_household_info(request: Request, db: Session = Depends(get_db)):
 
 class HouseholdUpdate(BaseModel):
     postal_code: Optional[str] = None
-    preferred_supermarkets: Optional[list[str]] = None
+    preferred_supermarkets: Optional[List[str]] = None
 
 
 @router.put("/household")
