@@ -262,6 +262,8 @@
             const [showRecurringModal, setShowRecurringModal] = React.useState(false);  // Modal for adding recurring meals
             const [showAutoPlanModal, setShowAutoPlanModal] = React.useState(false);  // Modal for auto-plan options
             const [showHouseholdModal, setShowHouseholdModal] = React.useState(false);  // Modal for household info
+            const [showCalorieModal, setShowCalorieModal] = React.useState(false);  // Modal for calorie target
+            const [calorieTarget, setCalorieTarget] = React.useState(user.daily_calorie_target || 1800);  // User's calorie goal
 
             // Day notes functions - now supports multiple notes per section
             const addDayNote = (date, mealType, note) => {
@@ -1150,10 +1152,14 @@
                                     <span className="text-sm text-gray-500 hidden sm:inline">{user.household_name}</span>
                                 </div>
                                 <div className="flex items-center gap-4">
-                                    <div className="flex items-center gap-2 text-sm text-gray-600">
+                                    <button 
+                                        onClick={() => setShowCalorieModal(true)}
+                                        className="flex items-center gap-2 text-sm text-gray-600 hover:text-orange-500 transition"
+                                        title="Kalorienziel anpassen"
+                                    >
                                         <Icons.Flame />
-                                        <span className="hidden sm:inline">Ziel: 1800 kcal/Tag</span>
-                                    </div>
+                                        <span className="hidden sm:inline">Ziel: {calorieTarget} kcal/Tag</span>
+                                    </button>
                                     <button 
                                         onClick={() => setShowHouseholdModal(true)}
                                         className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
@@ -1580,7 +1586,7 @@
                                                         </div>
                                                         <div className="flex lg:block items-center gap-3">
                                                             <div className={`text-sm font-medium ${getDayCalories(date) > 1800 ? 'text-red-500' : 'text-gray-600'}`}>
-                                                                {getDayCalories(date)} / 1800 kcal
+                                                                {getDayCalories(date)} / {calorieTarget} kcal
                                                             </div>
                                                             <div className="w-24 lg:w-full h-2 bg-gray-200 rounded lg:mt-1">
                                                                 <div className={`h-2 rounded transition-all ${getDayCalories(date) > 1800 ? 'bg-red-500' : 'bg-green-500'}`}
@@ -1875,6 +1881,103 @@
                     
                     {/* Household Modal */}
                     {showHouseholdModal && <HouseholdModal user={user} onClose={() => setShowHouseholdModal(false)} />}
+                    
+                    {/* Calorie Target Modal */}
+                    {showCalorieModal && <CalorieModal 
+                        currentTarget={calorieTarget} 
+                        onSave={(newTarget) => {
+                            setCalorieTarget(newTarget);
+                            setShowCalorieModal(false);
+                        }}
+                        onClose={() => setShowCalorieModal(false)} 
+                    />}
+                </div>
+            );
+        }
+
+        // ============ Calorie Target Modal ============
+        function CalorieModal({ currentTarget, onSave, onClose }) {
+            const [target, setTarget] = React.useState(currentTarget);
+            const [saving, setSaving] = React.useState(false);
+
+            const presets = [1200, 1500, 1800, 2000, 2200, 2500];
+
+            const handleSave = async () => {
+                setSaving(true);
+                try {
+                    await authFetch(`${API_BASE}/auth/me/calories`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ daily_calorie_target: target })
+                    });
+                    // Update localStorage user
+                    const user = JSON.parse(localStorage.getItem('user'));
+                    user.daily_calorie_target = target;
+                    localStorage.setItem('user', JSON.stringify(user));
+                    onSave(target);
+                } catch (e) { 
+                    console.error(e); 
+                }
+                setSaving(false);
+            };
+
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+                    <div className="bg-white rounded-2xl max-w-sm w-full p-6" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-lg font-bold text-gray-800">Kalorienziel</h3>
+                            <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
+                                <Icons.X />
+                            </button>
+                        </div>
+
+                        <p className="text-sm text-gray-500 mb-4">Dein tägliches Kalorienziel</p>
+
+                        <div className="flex flex-wrap gap-2 mb-4">
+                            {presets.map(preset => (
+                                <button
+                                    key={preset}
+                                    onClick={() => setTarget(preset)}
+                                    className={`px-3 py-2 rounded-lg text-sm font-medium transition ${
+                                        target === preset 
+                                            ? 'bg-orange-500 text-white' 
+                                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                    }`}
+                                >
+                                    {preset}
+                                </button>
+                            ))}
+                        </div>
+
+                        <div className="mb-6">
+                            <label className="text-sm text-gray-500 block mb-1">Oder eigener Wert:</label>
+                            <input
+                                type="number"
+                                value={target}
+                                onChange={(e) => setTarget(parseInt(e.target.value) || 0)}
+                                className="w-full px-4 py-3 border rounded-lg text-center text-xl font-bold focus:ring-2 focus:ring-orange-500 focus:outline-none"
+                                min="800"
+                                max="5000"
+                            />
+                            <p className="text-xs text-gray-400 text-center mt-1">kcal pro Tag</p>
+                        </div>
+
+                        <div className="flex gap-2">
+                            <button 
+                                onClick={onClose}
+                                className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+                            >
+                                Abbrechen
+                            </button>
+                            <button 
+                                onClick={handleSave}
+                                disabled={saving}
+                                className="flex-1 py-3 bg-orange-500 text-white rounded-lg hover:bg-orange-600 disabled:opacity-50"
+                            >
+                                {saving ? 'Speichern...' : 'Speichern'}
+                            </button>
+                        </div>
+                    </div>
                 </div>
             );
         }
