@@ -46,29 +46,21 @@ class TokenResponse(BaseModel):
 
 @router.post("/register", response_model=TokenResponse)
 async def register(data: RegisterRequest, db: Session = Depends(get_db)):
-    """Register a new user - either create new household or join existing"""
+    """Register a new user - requires invite code to join existing household"""
     
     # Check if username already exists
     existing = db.query(User).filter(User.username == data.username.lower()).first()
     if existing:
         raise HTTPException(status_code=400, detail="Benutzername bereits vergeben")
     
-    # Validate: must provide either household_name (create new) or invite_code (join existing)
-    if not data.household_name and not data.invite_code:
-        raise HTTPException(status_code=400, detail="Entweder Haushaltsname oder Einladungscode erforderlich")
+    # Require invite code - no public registration
+    if not data.invite_code:
+        raise HTTPException(status_code=400, detail="Einladungscode erforderlich")
     
-    household = None
-    is_admin = False
-    
-    if data.invite_code:
-        # Join existing household
-        household = auth.get_household_by_invite_code(db, data.invite_code)
-        if not household:
-            raise HTTPException(status_code=400, detail="Ungültiger Einladungscode")
-    else:
-        # Create new household
-        household = auth.create_household(db, data.household_name)
-        is_admin = True  # Creator is admin
+    # Join existing household
+    household = auth.get_household_by_invite_code(db, data.invite_code)
+    if not household:
+        raise HTTPException(status_code=400, detail="Ungültiger Einladungscode")
     
     # Create user
     user = auth.create_user(
@@ -77,7 +69,7 @@ async def register(data: RegisterRequest, db: Session = Depends(get_db)):
         password=data.password,
         household_id=household.id,
         display_name=data.display_name,
-        is_admin=is_admin
+        is_admin=False  # Only first user (created via DB) is admin
     )
     
     # Create token
