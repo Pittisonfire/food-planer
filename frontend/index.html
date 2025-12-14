@@ -1200,12 +1200,12 @@
             };
 
             const getOfferForItem = (itemName) => {
-                // Find matching offer for this item - must be precise!
+                // Find matching offer for this item
                 if (!itemName || shoppingOffers.length === 0) return null;
                 
                 const itemLower = itemName.toLowerCase();
                 // Get significant words (longer than 3 chars, not units/amounts)
-                const skipWords = ['und', 'oder', 'mit', 'für', 'von', 'the', 'and', 'for', 'with'];
+                const skipWords = ['und', 'oder', 'mit', 'für', 'von', 'the', 'and', 'for', 'with', 'etwa', 'optional'];
                 const itemWords = itemLower.split(/\s+/)
                     .filter(w => w.length > 3 && !skipWords.includes(w))
                     .filter(w => !/^\d+/.test(w)); // Skip numbers
@@ -1216,18 +1216,16 @@
                     if (!offer.item) return false;
                     const offerLower = offer.item.toLowerCase();
                     
-                    // Exact product name match (not substring of compound word)
-                    // "Eier" should NOT match "Eierspätzle"
-                    const offerWords = offerLower.split(/\s+/);
-                    
-                    // Check if main item word matches offer word exactly
-                    return itemWords.some(itemWord => 
-                        offerWords.some(offerWord => 
-                            itemWord === offerWord || 
-                            (itemWord.length > 4 && offerWord.startsWith(itemWord)) ||
-                            (offerWord.length > 4 && itemWord.startsWith(offerWord))
-                        )
-                    );
+                    // Check if item word is contained in offer (Fischfilets -> Thunfischfilets)
+                    // But not if item is very short (Eier should NOT match Eierspätzle)
+                    return itemWords.some(itemWord => {
+                        // For short words (<=5 chars like "Eier"), require exact word match
+                        if (itemWord.length <= 5) {
+                            return offerLower.split(/\s+/).includes(itemWord);
+                        }
+                        // For longer words, allow substring match (Fischfilets in Thunfischfilets)
+                        return offerLower.includes(itemWord) || itemWord.includes(offerLower);
+                    });
                 });
             };
 
