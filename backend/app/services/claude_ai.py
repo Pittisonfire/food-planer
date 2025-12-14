@@ -710,7 +710,7 @@ AUFGABEN:
 KATEGORIEN (nutze genau diese):
 - "Obst & Gemüse"
 - "Fleisch & Fisch"
-- "Milchprodukte"
+- "Eier & Milchprodukte"
 - "Backwaren"
 - "Tiefkühl"
 - "Konserven & Fertigprodukte"
@@ -779,7 +779,7 @@ Antworte NUR mit validem JSON, kein anderer Text:"""
         category_order = [
             "Obst & Gemüse",
             "Fleisch & Fisch", 
-            "Milchprodukte",
+            "Eier & Milchprodukte",
             "Backwaren",
             "Tiefkühl",
             "Konserven & Fertigprodukte",
