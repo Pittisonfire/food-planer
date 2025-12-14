@@ -505,7 +505,8 @@ async def generate_week_plan(
     taste_profile: dict,
     days: int = 7,
     existing_plan: list[dict] = None,
-    pantry_items: list[str] = None
+    pantry_items: list[str] = None,
+    meal_types: list[str] = None
 ) -> list[dict]:
     """Generate a full week of recipes based on taste profile"""
     
@@ -544,16 +545,30 @@ async def generate_week_plan(
     if pantry_items:
         pantry_context = f"\nVerfügbare Zutaten im Vorrat: {', '.join(pantry_items[:15])}"
     
-    prompt = f"""Erstelle einen Essensplan für {days} Tage basierend auf diesem Geschmacksprofil:
+    # Meal type context
+    meal_type_map = {
+        "breakfast": "Frühstück (leicht, schnell zubereitet, typische Frühstücksgerichte wie Müsli, Eier, Smoothies, Porridge)",
+        "lunch": "Mittagessen (ausgewogen, sättigend, mittlere Portionen)",
+        "dinner": "Abendessen (kann aufwändiger sein, Hauptmahlzeit des Tages)"
+    }
+    
+    meal_types_str = ""
+    if meal_types:
+        meal_descriptions = [meal_type_map.get(mt, mt) for mt in meal_types]
+        meal_types_str = f"\n\nDie Rezepte sind für folgende Mahlzeiten gedacht:\n" + "\n".join(f"- {d}" for d in meal_descriptions)
+        meal_types_str += "\n\nBitte erstelle passende Rezepte für diese Mahlzeiten-Typen abwechselnd."
+    
+    prompt = f"""Erstelle einen Essensplan mit {days} Rezepten basierend auf diesem Geschmacksprofil:
 
 GESCHMACKSPROFIL:
 {profile_context}
 {existing_context}
 {pantry_context}
+{meal_types_str}
 
 Erstelle {days} abwechslungsreiche Rezepte. Achte auf:
 - Abwechslung (nicht 2x das gleiche)
-- Mix aus schnellen und aufwändigeren Gerichten
+- Passende Rezepte für die jeweilige Mahlzeit (Frühstück sollte leicht und schnell sein, Abendessen kann aufwändiger sein)
 - Gute Balance aus Gemüse, Protein, Kohlenhydraten
 - Berücksichtige die Vorlieben und Abneigungen!
 
