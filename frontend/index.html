@@ -1199,33 +1199,61 @@
                 setOffersLoading(false);
             };
 
-            const getOfferForItem = (itemName) => {
-                // Find matching offer for this item
+            const getOfferForItem = (itemName, itemCategory) => {
+                // Find matching offer for this item using category + name matching
                 if (!itemName || shoppingOffers.length === 0) return null;
                 
                 const itemLower = itemName.toLowerCase();
-                // Get significant words (longer than 3 chars, not units/amounts)
-                const skipWords = ['und', 'oder', 'mit', 'für', 'von', 'the', 'and', 'for', 'with', 'etwa', 'optional'];
-                const itemWords = itemLower.split(/\s+/)
-                    .filter(w => w.length > 3 && !skipWords.includes(w))
-                    .filter(w => !/^\d+/.test(w)); // Skip numbers
                 
-                if (itemWords.length === 0) return null;
+                // Category mapping: Marktguru categories -> our categories
+                const categoryMap = {
+                    'Fleisch & Fisch': ['fisch', 'lachs', 'thunfisch', 'fleisch', 'hack', 'hähnchen', 'rind', 'schwein', 'wurst', 'schinken', 'speck', 'filet'],
+                    'Obst & Gemüse': ['obst', 'gemüse', 'salat', 'tomate', 'gurke', 'paprika', 'zwiebel', 'kartoffel', 'apfel', 'banane', 'orange'],
+                    'Eier & Milchprodukte': ['eier', 'milch', 'käse', 'joghurt', 'sahne', 'butter', 'quark', 'schmand'],
+                    'Backwaren': ['brot', 'brötchen', 'toast', 'croissant', 'backwaren'],
+                    'Gewürze & Öle': ['gewürz', 'öl', 'essig', 'sauce', 'senf', 'ketchup'],
+                    'Konserven & Fertigprodukte': ['dose', 'konserve', 'fertig', 'suppe', 'brühe'],
+                    'Getränke': ['getränk', 'saft', 'wasser', 'cola', 'bier', 'wein'],
+                    'Tiefkühl': ['tiefkühl', 'eis', 'pizza', 'pommes']
+                };
+                
+                // Get keywords for the item's category
+                const categoryKeywords = categoryMap[itemCategory] || [];
+                
+                // Get significant words from item name
+                const skipWords = ['und', 'oder', 'mit', 'für', 'von', 'the', 'and', 'for', 'with', 'etwa', 'optional', 'frisch', 'gehackt'];
+                const itemWords = itemLower.split(/\s+/)
+                    .filter(w => w.length > 2 && !skipWords.includes(w))
+                    .filter(w => !/^\d+/.test(w));
                 
                 return shoppingOffers.find(offer => {
                     if (!offer.item) return false;
                     const offerLower = offer.item.toLowerCase();
+                    const offerCatLower = (offer.category || '').toLowerCase();
                     
-                    // Check if item word is contained in offer (Fischfilets -> Thunfischfilets)
-                    // But not if item is very short (Eier should NOT match Eierspätzle)
-                    return itemWords.some(itemWord => {
-                        // For short words (<=5 chars like "Eier"), require exact word match
-                        if (itemWord.length <= 5) {
-                            return offerLower.split(/\s+/).includes(itemWord);
+                    // 1. Direct name match (best)
+                    const directMatch = itemWords.some(word => {
+                        if (word.length <= 4) {
+                            return offerLower.split(/\s+/).some(ow => ow === word);
                         }
-                        // For longer words, allow substring match (Fischfilets in Thunfischfilets)
-                        return offerLower.includes(itemWord) || itemWord.includes(offerLower);
+                        return offerLower.includes(word) || word.includes(offerLower.split(/\s+/)[0]);
                     });
+                    
+                    if (directMatch) return true;
+                    
+                    // 2. Category-based semantic match
+                    // Check if offer category matches our item category keywords
+                    if (itemCategory && categoryKeywords.length > 0) {
+                        const offerMatchesCategory = categoryKeywords.some(kw => 
+                            offerLower.includes(kw) || offerCatLower.includes(kw)
+                        );
+                        const itemMatchesOffer = itemWords.some(word =>
+                            offerLower.includes(word.substring(0, 4)) // First 4 chars match
+                        );
+                        if (offerMatchesCategory && itemMatchesOffer) return true;
+                    }
+                    
+                    return false;
                 });
             };
 
@@ -2042,7 +2070,7 @@
                                                                 const dbItem = shoppingList.find(i => i.name.includes(item.name));
                                                                 const isChecked = dbItem?.checked || false;
                                                                 const itemId = dbItem?.id;
-                                                                const offer = getOfferForItem(item.name);
+                                                                const offer = getOfferForItem(item.name, category.name);
                                                                 return (
                                                                     <div key={idx} 
                                                                         onClick={() => itemId && toggleShoppingItem(itemId)}
