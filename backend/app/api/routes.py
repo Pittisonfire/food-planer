@@ -580,6 +580,44 @@ async def generate_shopping_list(
     }
 
 
+@router.post("/shopping/offers")
+async def search_offers(
+    household_id: int = Depends(get_current_household),
+    db: Session = Depends(get_db)
+):
+    """Search for supermarket offers for items in shopping list"""
+    
+    # Get household for postal code
+    household = db.query(Household).filter(Household.id == household_id).first()
+    
+    if not household or not household.postal_code:
+        raise HTTPException(
+            status_code=400, 
+            detail="Bitte zuerst PLZ in den Haushalt-Einstellungen hinterlegen"
+        )
+    
+    # Get current shopping items
+    items = db.query(ShoppingItem).filter(
+        ShoppingItem.household_id == household_id,
+        ShoppingItem.checked == False
+    ).all()
+    
+    if not items:
+        return {"offers": [], "message": "Keine Artikel in der Einkaufsliste"}
+    
+    # Extract item names
+    item_names = [item.name for item in items]
+    
+    # Search for offers
+    offers = await claude_ai.search_supermarket_offers(
+        items=item_names,
+        postal_code=household.postal_code,
+        supermarkets=["Lidl", "Aldi Nord", "Rewe"]
+    )
+    
+    return {"offers": offers, "postal_code": household.postal_code}
+
+
 @router.post("/shopping")
 async def add_shopping_item(
     data: ShoppingItemCreate,
