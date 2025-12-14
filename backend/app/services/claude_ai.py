@@ -826,6 +826,8 @@ async def search_supermarket_offers(
     # Select top items to search (expensive ones like meat, cheese, fish)
     items_to_search = items[:8]  # Max 8 items to keep it fast
     
+    print(f"Searching offers for: {items_to_search} in PLZ {postal_code}")
+    
     search_query = f"""Suche aktuelle Supermarkt-Angebote für diese Woche in PLZ {postal_code}.
 
 Supermärkte: {', '.join(supermarkets)}
@@ -861,14 +863,23 @@ Suche auf Seiten wie kaufDA, Marktguru, oder direkt bei den Supermärkten (lidl.
             )
             
             result = response.json()
+            print(f"Web search API response status: {response.status_code}")
+            
+            # Check for API error
+            if "error" in result:
+                print(f"Web search API error: {result['error']}")
+                return []
             
             # Extract text from response
             response_text = ""
             for block in result.get("content", []):
                 if block.get("type") == "text":
                     response_text += block.get("text", "")
+            
+            print(f"Web search response length: {len(response_text)} chars")
         
         if not response_text:
+            print("No response text from web search")
             return []
         
         # Now parse the offers with another Claude call
@@ -904,6 +915,7 @@ Antworte NUR mit validem JSON:"""
         )
         
         parse_response = parse_message.content[0].text.strip()
+        print(f"Parse response: {parse_response[:200]}...")
         
         # Clean up response
         if parse_response.startswith("```"):
@@ -911,8 +923,11 @@ Antworte NUR mit validem JSON:"""
             parse_response = re.sub(r'\n?```$', '', parse_response)
         
         offers = json.loads(parse_response)
+        print(f"Found {len(offers)} offers")
         return offers
         
     except Exception as e:
         print(f"Offer search error: {e}")
+        import traceback
+        traceback.print_exc()
         return []
