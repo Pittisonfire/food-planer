@@ -115,3 +115,16 @@ class TasteProfile(Base):
     #   "favorite_ingredients": ["Pasta", "Hähnchen", "Reis"]
     # }
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class IngredientCache(Base):
+    """Cache for categorized ingredients to avoid re-processing"""
+    __tablename__ = "ingredient_cache"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    household_id = Column(Integer, ForeignKey("households.id"), nullable=False, index=True)
+    ingredient_key = Column(String(255), nullable=False, index=True)  # Normalized ingredient name
+    category = Column(String(100), nullable=False)  # Category it belongs to
+    display_name = Column(String(500))  # How to display (with amount)
+    is_basic = Column(Boolean, default=False)  # Is it a basic ingredient (salt, pepper, etc.)
+    created_at = Column(DateTime, server_default=func.now())
