@@ -962,14 +962,90 @@ async def search_supermarket_offers(
                         }
                         all_offers.append(offer)
         
+        # Also search Edeka if selected
+        if any('edeka' in s.lower() for s in supermarkets):
+            edeka_offers = await search_edeka_offers(search_terms, postal_code)
+            all_offers.extend(edeka_offers)
+        
         # Sort by retailer for better readability
         all_offers.sort(key=lambda x: x['supermarket'])
         
-        print(f"Found {len(all_offers)} offers from Marktguru")
+        print(f"Found {len(all_offers)} offers total (Marktguru + Edeka)")
         return all_offers
         
     except Exception as e:
         print(f"Marktguru search error: {e}")
         import traceback
         traceback.print_exc()
+        return []
+
+
+async def search_edeka_offers(search_terms: list, postal_code: str) -> list:
+    """Search Edeka offers API"""
+    try:
+        # Edeka API endpoint - uses coordinates, but we'll use a generic request for national offers
+        url = "https://www.edeka.de/eh/service/eh/offers.jsp"
+        params = {
+            "marketid": "0",  # 0 = national offers
+            "latitude": "51.1494",
+            "longitude": "7.2148"
+        }
+        
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(url, params=params)
+            
+            if response.status_code != 200:
+                print(f"Edeka API error: {response.status_code}")
+                return []
+            
+            data = response.json()
+            offers = []
+            
+            for doc in data.get('docs', []):
+                title = doc.get('titel', '')
+                title_lower = title.lower()
+                
+                # Check if any search term matches this offer
+                matches = any(
+                    term.lower() in title_lower or 
+                    any(word in title_lower for word in term.lower().split() if len(word) > 3)
+                    for term in search_terms
+                )
+                
+                if not matches:
+                    continue
+                
+                # Parse validity date
+                valid_until_ts = doc.get('gueltig_bis', 0)
+                valid_until = ""
+                if valid_until_ts:
+                    from datetime import datetime
+                    try:
+                        dt = datetime.fromtimestamp(valid_until_ts / 1000)
+                        valid_until = dt.strftime("%d.%m.")
+                    except:
+                        pass
+                
+                price = doc.get('preis', 0)
+                discount = doc.get('nachlass', '')
+                description = doc.get('beschreibung', '')
+                
+                offer = {
+                    "item": title,
+                    "supermarket": "Edeka",
+                    "price": f"{price:.2f}€" if price else "",
+                    "original_price": "",
+                    "valid_from": "",
+                    "valid_until": valid_until,
+                    "details": f"{description} {discount}".strip() if discount else description,
+                    "url": "https://www.edeka.de/eh/angebote.jsp",
+                    "category": ""
+                }
+                offers.append(offer)
+            
+            print(f"Found {len(offers)} Edeka offers")
+            return offers
+            
+    except Exception as e:
+        print(f"Edeka search error: {e}")
         return []
