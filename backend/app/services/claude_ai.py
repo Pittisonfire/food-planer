@@ -850,8 +850,14 @@ async def search_supermarket_offers(
     seen_offers = set()  # Deduplicate by product+price+retailer_base
     
     def normalize_retailer(name: str) -> str:
-        """Normalize retailer name (REWE Dortmund -> REWE)"""
+        """Normalize retailer name (REWE Dortmund -> REWE), return None for wholesalers"""
         name_lower = name.lower()
+        
+        # Skip wholesalers and specialty stores (too far away for most people)
+        skip_retailers = ['handelshof', 'metro', 'selgros', 'hamberger', 'transgourmet']
+        if any(skip in name_lower for skip in skip_retailers):
+            return None  # Will be filtered out
+        
         if 'lidl' in name_lower:
             return 'Lidl'
         if 'aldi' in name_lower:
@@ -866,6 +872,8 @@ async def search_supermarket_offers(
             return 'Netto'
         if 'penny' in name_lower:
             return 'Penny'
+        if 'real' in name_lower:
+            return 'Real'
         return name
     
     try:
@@ -891,6 +899,10 @@ async def search_supermarket_offers(
                     for result in data.get('results', []):
                         raw_retailer = result.get('advertisers', [{}])[0].get('name', '')
                         retailer = normalize_retailer(raw_retailer)
+                        
+                        # Skip wholesalers (normalize_retailer returns None)
+                        if retailer is None:
+                            continue
                         
                         # Parse validity dates
                         valid_from = ""
