@@ -27,6 +27,7 @@ class User(Base):
     display_name = Column(String(255), nullable=True)
     household_id = Column(Integer, ForeignKey("households.id"), nullable=False)
     is_admin = Column(Boolean, default=False)  # Admin of the household
+    daily_calorie_target = Column(Integer, default=1800)  # Personal calorie goal
     created_at = Column(DateTime, server_default=func.now())
     
     # Relationships
