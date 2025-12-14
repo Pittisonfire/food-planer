@@ -819,7 +819,7 @@ Antworte NUR mit validem JSON, kein anderer Text:"""
 async def search_supermarket_offers(
     items: list[str],
     postal_code: str,
-    supermarkets: list[str] = ["Lidl", "Aldi Nord", "Rewe"]
+    supermarkets: list[str] = ["Lidl", "Aldi", "Rewe", "Kaufland", "Edeka", "Netto", "Penny"]
 ) -> list[dict]:
     """Search for current supermarket offers using Marktguru API"""
     
@@ -848,14 +848,33 @@ async def search_supermarket_offers(
     print(f"Searching Marktguru for: {search_terms} in PLZ {postal_code}")
     
     all_offers = []
-    seen_offers = set()  # Deduplicate
+    seen_offers = set()  # Deduplicate by product+price+retailer_base
+    
+    def normalize_retailer(name: str) -> str:
+        """Normalize retailer name (REWE Dortmund -> REWE)"""
+        name_lower = name.lower()
+        if 'lidl' in name_lower:
+            return 'Lidl'
+        if 'aldi' in name_lower:
+            return 'Aldi'
+        if 'rewe' in name_lower:
+            return 'REWE'
+        if 'kaufland' in name_lower:
+            return 'Kaufland'
+        if 'edeka' in name_lower:
+            return 'Edeka'
+        if 'netto' in name_lower:
+            return 'Netto'
+        if 'penny' in name_lower:
+            return 'Penny'
+        return name
     
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             for term in search_terms[:8]:  # Max 8 searches
                 params = {
                     "as": "web",
-                    "limit": 5,
+                    "limit": 10,  # Get more results
                     "offset": 0,
                     "q": term,
                     "zipCode": postal_code
@@ -871,16 +890,8 @@ async def search_supermarket_offers(
                     data = response.json()
                     
                     for result in data.get('results', []):
-                        retailer = result.get('advertisers', [{}])[0].get('name', '')
-                        
-                        # Filter by preferred supermarkets
-                        if not any(s.lower() in retailer.lower() for s in supermarkets):
-                            continue
-                        
-                        offer_id = result.get('id')
-                        if offer_id in seen_offers:
-                            continue
-                        seen_offers.add(offer_id)
+                        raw_retailer = result.get('advertisers', [{}])[0].get('name', '')
+                        retailer = normalize_retailer(raw_retailer)
                         
                         # Parse validity dates
                         valid_from = ""
@@ -898,8 +909,16 @@ async def search_supermarket_offers(
                         price = result.get('price')
                         old_price = result.get('oldPrice')
                         
+                        product_name = result.get('product', {}).get('name', term)
+                        
+                        # Deduplicate by product + price + retailer
+                        offer_key = f"{product_name}_{price}_{retailer}"
+                        if offer_key in seen_offers:
+                            continue
+                        seen_offers.add(offer_key)
+                        
                         offer = {
-                            "item": result.get('product', {}).get('name', term),
+                            "item": product_name,
                             "supermarket": retailer,
                             "price": f"{price:.2f}€" if price else "",
                             "original_price": f"{old_price:.2f}€" if old_price else "",
@@ -908,6 +927,9 @@ async def search_supermarket_offers(
                             "details": result.get('description', '')
                         }
                         all_offers.append(offer)
+        
+        # Sort by retailer for better readability
+        all_offers.sort(key=lambda x: x['supermarket'])
         
         print(f"Found {len(all_offers)} offers from Marktguru")
         return all_offers
