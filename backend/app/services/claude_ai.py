@@ -814,3 +814,89 @@ Antworte NUR mit validem JSON, kein anderer Text:"""
             "from_pantry": [],
             "basic_items": []
         }
+
+
+async def search_supermarket_offers(
+    items: list[str],
+    postal_code: str,
+    supermarkets: list[str] = ["Lidl", "Aldi Nord", "Rewe"]
+) -> list[dict]:
+    """Search for current supermarket offers for given items"""
+    
+    client = get_claude_client()
+    
+    # Select top items to search (expensive ones)
+    items_to_search = items[:8]  # Max 8 items to keep it fast
+    
+    search_query = f"""Suche aktuelle Supermarkt-Angebote für diese Woche in PLZ {postal_code}.
+
+Supermärkte: {', '.join(supermarkets)}
+
+Artikel die ich suche:
+{chr(10).join(f'- {item}' for item in items_to_search)}
+
+Finde aktuelle Angebote (diese Woche gültig) für diese Artikel. 
+Suche auf Seiten wie kaufDA, Marktguru, oder direkt bei den Supermärkten."""
+
+    try:
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=2000,
+            tools=[{
+                "type": "web_search_20250305",
+                "name": "web_search"
+            }],
+            messages=[
+                {"role": "user", "content": search_query}
+            ]
+        )
+        
+        # Extract the response and parse offers
+        response_text = ""
+        for block in message.content:
+            if hasattr(block, 'text'):
+                response_text += block.text
+        
+        # Now parse the offers with another Claude call
+        parse_prompt = f"""Extrahiere die gefundenen Angebote aus diesem Text und gib sie als JSON zurück.
+
+TEXT:
+{response_text}
+
+Antworte NUR mit einem JSON-Array in diesem Format:
+[
+  {{
+    "item": "Hackfleisch",
+    "supermarket": "Lidl",
+    "price": "2,99€",
+    "original_price": "3,49€",
+    "valid_from": "16.12.",
+    "valid_until": "21.12.",
+    "details": "500g gemischt"
+  }}
+]
+
+Falls keine Angebote gefunden wurden, antworte mit: []
+Antworte NUR mit validem JSON:"""
+
+        parse_message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=2000,
+            messages=[
+                {"role": "user", "content": parse_prompt}
+            ]
+        )
+        
+        parse_response = parse_message.content[0].text.strip()
+        
+        # Clean up response
+        if parse_response.startswith("```"):
+            parse_response = re.sub(r'^```(?:json)?\n?', '', parse_response)
+            parse_response = re.sub(r'\n?```$', '', parse_response)
+        
+        offers = json.loads(parse_response)
+        return offers
+        
+    except Exception as e:
+        print(f"Offer search error: {e}")
+        return []
