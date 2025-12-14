@@ -478,6 +478,7 @@
             const AutoPlanModal = ({ onClose, onGenerate, isLoading }) => {
                 const [selectedMealTypes, setSelectedMealTypes] = React.useState(['lunch']);
                 const [days, setDays] = React.useState(7);
+                const [startTomorrow, setStartTomorrow] = React.useState(true);
                 
                 const mealTypeOptions = [
                     { type: 'breakfast', name: 'Frühstück', color: 'orange' },
@@ -496,7 +497,7 @@
                 };
                 
                 const handleGenerate = () => {
-                    onGenerate(days, selectedMealTypes);
+                    onGenerate(days, selectedMealTypes, startTomorrow);
                 };
                 
                 return (
@@ -537,6 +538,26 @@
                                         {d} Tage
                                     </button>
                                 ))}
+                            </div>
+                            
+                            <p className="text-sm text-gray-500 mb-2">Start ab:</p>
+                            <div className="flex gap-2 mb-6">
+                                <button onClick={() => setStartTomorrow(false)}
+                                    className={`flex-1 py-2 rounded-lg font-medium ${
+                                        !startTomorrow 
+                                            ? 'bg-purple-500 text-white' 
+                                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                    }`}>
+                                    Heute
+                                </button>
+                                <button onClick={() => setStartTomorrow(true)}
+                                    className={`flex-1 py-2 rounded-lg font-medium ${
+                                        startTomorrow 
+                                            ? 'bg-purple-500 text-white' 
+                                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                    }`}>
+                                    Morgen
+                                </button>
                             </div>
                             
                             <div className="flex gap-2">
@@ -665,15 +686,19 @@
                 setLoading(false);
             };
 
-            const autoGeneratePlan = async (days = 7, mealTypes = ['lunch']) => {
+            const autoGeneratePlan = async (days = 7, mealTypes = ['lunch'], startTomorrow = true) => {
                 setAutoPlanning(true);
                 setShowAutoPlanModal(false);
                 try {
-                    const today = new Date().toISOString().split('T')[0];
+                    const startDate = new Date();
+                    if (startTomorrow) {
+                        startDate.setDate(startDate.getDate() + 1);
+                    }
+                    const startDateStr = startDate.toISOString().split('T')[0];
                     const res = await fetch(`${API_BASE}/mealplan/auto-generate`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ days, start_date: today, meal_types: mealTypes })
+                        body: JSON.stringify({ days, start_date: startDateStr, meal_types: mealTypes })
                     });
                     const data = await res.json();
                     if (data.status === 'created') {
