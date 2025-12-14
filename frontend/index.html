@@ -169,49 +169,6 @@
                             </form>
                         )}
 
-                        {mode === 'register' && (
-                            <form onSubmit={handleRegister} className="space-y-4">
-                                <input
-                                    type="text"
-                                    placeholder="Benutzername"
-                                    value={username}
-                                    onChange={(e) => setUsername(e.target.value)}
-                                    className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-green-500 focus:outline-none"
-                                    required
-                                />
-                                <input
-                                    type="text"
-                                    placeholder="Anzeigename (optional)"
-                                    value={displayName}
-                                    onChange={(e) => setDisplayName(e.target.value)}
-                                    className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-green-500 focus:outline-none"
-                                />
-                                <input
-                                    type="password"
-                                    placeholder="Passwort"
-                                    value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
-                                    className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-green-500 focus:outline-none"
-                                    required
-                                />
-                                <input
-                                    type="text"
-                                    placeholder="Haushaltsname (z.B. 'Familie Müller')"
-                                    value={householdName}
-                                    onChange={(e) => setHouseholdName(e.target.value)}
-                                    className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-green-500 focus:outline-none"
-                                    required
-                                />
-                                <button
-                                    type="submit"
-                                    disabled={loading}
-                                    className="w-full py-3 bg-green-500 text-white rounded-lg font-medium hover:bg-green-600 disabled:opacity-50"
-                                >
-                                    {loading ? 'Registrieren...' : 'Haushalt erstellen'}
-                                </button>
-                            </form>
-                        )}
-
                         {mode === 'join' && (
                             <form onSubmit={handleRegister} className="space-y-4">
                                 <input
@@ -250,7 +207,7 @@
                                     disabled={loading}
                                     className="w-full py-3 bg-green-500 text-white rounded-lg font-medium hover:bg-green-600 disabled:opacity-50"
                                 >
-                                    {loading ? 'Beitreten...' : 'Haushalt beitreten'}
+                                    {loading ? 'Registrieren...' : 'Registrieren'}
                                 </button>
                             </form>
                         )}
@@ -259,14 +216,9 @@
                             {mode === 'login' && (
                                 <>
                                     <p>Noch kein Konto?</p>
-                                    <div className="flex gap-2">
-                                        <button onClick={() => setMode('register')} className="flex-1 py-2 border rounded-lg hover:bg-gray-50">
-                                            Neuen Haushalt erstellen
-                                        </button>
-                                        <button onClick={() => setMode('join')} className="flex-1 py-2 border rounded-lg hover:bg-gray-50">
-                                            Haushalt beitreten
-                                        </button>
-                                    </div>
+                                    <button onClick={() => setMode('join')} className="w-full py-2 border rounded-lg hover:bg-gray-50">
+                                        Mit Einladungscode registrieren
+                                    </button>
                                 </>
                             )}
                             {(mode === 'register' || mode === 'join') && (
