@@ -1205,55 +1205,49 @@
                 
                 const itemLower = itemName.toLowerCase();
                 
-                // Category mapping: Marktguru categories -> our categories
-                const categoryMap = {
-                    'Fleisch & Fisch': ['fisch', 'lachs', 'thunfisch', 'fleisch', 'hack', 'hähnchen', 'rind', 'schwein', 'wurst', 'schinken', 'speck', 'filet'],
-                    'Obst & Gemüse': ['obst', 'gemüse', 'salat', 'tomate', 'gurke', 'paprika', 'zwiebel', 'kartoffel', 'apfel', 'banane', 'orange'],
-                    'Eier & Milchprodukte': ['eier', 'milch', 'käse', 'joghurt', 'sahne', 'butter', 'quark', 'schmand'],
-                    'Backwaren': ['brot', 'brötchen', 'toast', 'croissant', 'backwaren'],
-                    'Gewürze & Öle': ['gewürz', 'öl', 'essig', 'sauce', 'senf', 'ketchup'],
-                    'Konserven & Fertigprodukte': ['dose', 'konserve', 'fertig', 'suppe', 'brühe'],
-                    'Getränke': ['getränk', 'saft', 'wasser', 'cola', 'bier', 'wein'],
-                    'Tiefkühl': ['tiefkühl', 'eis', 'pizza', 'pommes']
+                // Categories that should NOT match for each shopping category
+                const excludeCategories = {
+                    'Obst & Gemüse': ['chips', 'snack', 'süß', 'gebäck', 'teigwaren', 'nudel', 'pasta', 'spätzle', 'fertiggericht'],
+                    'Fleisch & Fisch': ['chips', 'snack', 'süß', 'gebäck', 'vegetarisch', 'vegan'],
+                    'Eier & Milchprodukte': ['chips', 'snack', 'süß', 'gebäck', 'teigwaren', 'spätzle'],
+                    'Gewürze & Öle': ['chips', 'snack', 'fertiggericht', 'fleisch', 'gulasch'],
                 };
                 
-                // Get keywords for the item's category
-                const categoryKeywords = categoryMap[itemCategory] || [];
-                
-                // Get significant words from item name
-                const skipWords = ['und', 'oder', 'mit', 'für', 'von', 'the', 'and', 'for', 'with', 'etwa', 'optional', 'frisch', 'gehackt'];
+                // Get significant words from item name (skip amounts, units, filler words)
+                const skipWords = ['und', 'oder', 'mit', 'für', 'von', 'etwa', 'optional', 'frisch', 'gehackt', 'große', 'kleine'];
                 const itemWords = itemLower.split(/\s+/)
-                    .filter(w => w.length > 2 && !skipWords.includes(w))
+                    .filter(w => w.length > 3 && !skipWords.includes(w))
                     .filter(w => !/^\d+/.test(w));
+                
+                if (itemWords.length === 0) return null;
+                
+                const excludeList = excludeCategories[itemCategory] || [];
                 
                 return shoppingOffers.find(offer => {
                     if (!offer.item) return false;
                     const offerLower = offer.item.toLowerCase();
                     const offerCatLower = (offer.category || '').toLowerCase();
+                    const offerDetails = (offer.details || '').toLowerCase();
                     
-                    // 1. Direct name match (best)
-                    const directMatch = itemWords.some(word => {
-                        if (word.length <= 4) {
-                            return offerLower.split(/\s+/).some(ow => ow === word);
+                    // FIRST: Check if offer category is in exclude list for this item category
+                    const isExcluded = excludeList.some(exc => 
+                        offerCatLower.includes(exc) || offerLower.includes(exc)
+                    );
+                    if (isExcluded) return false;
+                    
+                    // Check for name match - item word should be the MAIN product, not just a flavor
+                    // "Paprika" should match "Paprika Mix" but NOT "Chips Paprika"
+                    return itemWords.some(itemWord => {
+                        // For short words, require it to be at the start or be an exact word
+                        if (itemWord.length <= 6) {
+                            const offerWords = offerLower.split(/\s+/);
+                            // Must be first word OR exact match in offer
+                            return offerWords[0].includes(itemWord) || 
+                                   offerWords.some(ow => ow === itemWord);
                         }
-                        return offerLower.includes(word) || word.includes(offerLower.split(/\s+/)[0]);
+                        // For longer words, substring is OK
+                        return offerLower.includes(itemWord);
                     });
-                    
-                    if (directMatch) return true;
-                    
-                    // 2. Category-based semantic match
-                    // Check if offer category matches our item category keywords
-                    if (itemCategory && categoryKeywords.length > 0) {
-                        const offerMatchesCategory = categoryKeywords.some(kw => 
-                            offerLower.includes(kw) || offerCatLower.includes(kw)
-                        );
-                        const itemMatchesOffer = itemWords.some(word =>
-                            offerLower.includes(word.substring(0, 4)) // First 4 chars match
-                        );
-                        if (offerMatchesCategory && itemMatchesOffer) return true;
-                    }
-                    
-                    return false;
                 });
             };
 
