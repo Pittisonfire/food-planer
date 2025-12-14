@@ -545,37 +545,53 @@ async def generate_week_plan(
     if pantry_items:
         pantry_context = f"\nVerfügbare Zutaten im Vorrat: {', '.join(pantry_items[:15])}"
     
-    # Meal type context
-    meal_type_map = {
-        "breakfast": "Frühstück (leicht, schnell zubereitet, typische Frühstücksgerichte wie Müsli, Eier, Smoothies, Porridge)",
-        "lunch": "Mittagessen (ausgewogen, sättigend, mittlere Portionen)",
-        "dinner": "Abendessen (kann aufwändiger sein, Hauptmahlzeit des Tages)"
+    # Build specific meal type instructions
+    meal_types = meal_types or ["lunch"]
+    
+    meal_type_instructions = {
+        "breakfast": """FRÜHSTÜCK - WICHTIG: Nur typische Frühstücksgerichte!
+Erlaubt: Porridge, Overnight Oats, Müsli mit Joghurt, Rührei, Spiegelei, Omelette, 
+Smoothie Bowl, Pancakes, French Toast, Avocado-Toast, Quark mit Früchten, Granola.
+VERBOTEN für Frühstück: Pasta, Reis, Fleischgerichte, Aufläufe, Pfannengerichte mit Knoblauch/Zwiebeln.
+Kalorien: 200-400 kcal, Zeit: max 15 Minuten""",
+        "lunch": """MITTAGESSEN - Ausgewogene Hauptmahlzeit
+Erlaubt: Salate, Bowls, Sandwiches, leichte Pasta, Suppen, Wraps, Reis-Gerichte.
+Kalorien: 400-600 kcal, Zeit: 20-40 Minuten""",
+        "dinner": """ABENDESSEN - Sättigende Hauptmahlzeit  
+Erlaubt: Alle herzhaften Gerichte, Aufläufe, Fleisch/Fisch mit Beilagen, Pasta, Curries.
+Kalorien: 500-800 kcal, Zeit: 30-60 Minuten"""
     }
     
-    meal_types_str = ""
-    if meal_types:
-        meal_descriptions = [meal_type_map.get(mt, mt) for mt in meal_types]
-        meal_types_str = f"\n\nDie Rezepte sind für folgende Mahlzeiten gedacht:\n" + "\n".join(f"- {d}" for d in meal_descriptions)
-        meal_types_str += "\n\nBitte erstelle passende Rezepte für diese Mahlzeiten-Typen abwechselnd."
+    # Calculate how many recipes per meal type
+    num_days = days // len(meal_types) if meal_types else days
     
-    prompt = f"""Erstelle einen Essensplan mit {days} Rezepten basierend auf diesem Geschmacksprofil:
+    prompt = f"""Erstelle einen Essensplan basierend auf diesem Geschmacksprofil:
 
 GESCHMACKSPROFIL:
 {profile_context}
 {existing_context}
 {pantry_context}
-{meal_types_str}
 
-Erstelle {days} abwechslungsreiche Rezepte. Achte auf:
-- Abwechslung (nicht 2x das gleiche)
-- Passende Rezepte für die jeweilige Mahlzeit (Frühstück sollte leicht und schnell sein, Abendessen kann aufwändiger sein)
-- Gute Balance aus Gemüse, Protein, Kohlenhydraten
-- Berücksichtige die Vorlieben und Abneigungen!
+WICHTIG - Erstelle Rezepte für diese Mahlzeiten:
+"""
+    
+    for mt in meal_types:
+        instruction = meal_type_instructions.get(mt, "Hauptmahlzeit")
+        prompt += f"\n{instruction}\n"
+    
+    prompt += f"""
+
+Erstelle insgesamt {days} Rezepte. Die Rezepte müssen ABWECHSELND für die verschiedenen Mahlzeiten sein.
+{"Bei " + str(len(meal_types)) + " Mahlzeiten-Typen bedeutet das: " + ", ".join([f"Rezept {i+1}={meal_types[i % len(meal_types)]}" for i in range(min(6, days))]) + "..." if len(meal_types) > 1 else ""}
+
+KRITISCH: Frühstücksrezepte MÜSSEN echte Frühstücksgerichte sein (Eier, Müsli, Porridge, Toast, Smoothies)!
+Keine Pasta, kein Reis, kein Knoblauch, keine Zwiebeln zum Frühstück!
 
 Antworte NUR mit einem JSON Array von {days} Rezepten:
 [
     {{
         "title": "Name des Gerichts",
+        "meal_type": "breakfast/lunch/dinner",
         "calories": 450,
         "ready_in_minutes": 30,
         "servings": 2,
@@ -587,7 +603,6 @@ Antworte NUR mit einem JSON Array von {days} Rezepten:
     ...
 ]
 
-Der taste_score zeigt wie gut das Rezept zum Profil passt (0-100).
 Antworte NUR mit dem JSON Array:"""
 
     try:
