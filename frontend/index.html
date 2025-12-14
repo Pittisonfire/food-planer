@@ -1200,24 +1200,33 @@
             };
 
             const getOfferForItem = (itemName) => {
-                // Find matching offer for this item
+                // Find matching offer for this item - must be precise!
                 if (!itemName || shoppingOffers.length === 0) return null;
                 
                 const itemLower = itemName.toLowerCase();
-                const itemWords = itemLower.split(/\s+/).filter(w => w.length > 2);
+                // Get significant words (longer than 3 chars, not units/amounts)
+                const skipWords = ['und', 'oder', 'mit', 'für', 'von', 'the', 'and', 'for', 'with'];
+                const itemWords = itemLower.split(/\s+/)
+                    .filter(w => w.length > 3 && !skipWords.includes(w))
+                    .filter(w => !/^\d+/.test(w)); // Skip numbers
+                
+                if (itemWords.length === 0) return null;
                 
                 return shoppingOffers.find(offer => {
                     if (!offer.item) return false;
                     const offerLower = offer.item.toLowerCase();
                     
-                    // Direct match
-                    if (itemLower.includes(offerLower) || offerLower.includes(itemLower)) {
-                        return true;
-                    }
+                    // Exact product name match (not substring of compound word)
+                    // "Eier" should NOT match "Eierspätzle"
+                    const offerWords = offerLower.split(/\s+/);
                     
-                    // Check if any significant word matches
-                    return itemWords.some(word => 
-                        offerLower.includes(word) || word.includes(offerLower)
+                    // Check if main item word matches offer word exactly
+                    return itemWords.some(itemWord => 
+                        offerWords.some(offerWord => 
+                            itemWord === offerWord || 
+                            (itemWord.length > 4 && offerWord.startsWith(itemWord)) ||
+                            (offerWord.length > 4 && itemWord.startsWith(offerWord))
+                        )
                     );
                 });
             };
@@ -2315,6 +2324,10 @@
             const [copied, setCopied] = React.useState(false);
             const [postalCode, setPostalCode] = React.useState('');
             const [savingPostal, setSavingPostal] = React.useState(false);
+            const [selectedSupermarkets, setSelectedSupermarkets] = React.useState([]);
+            const [savingSupermarkets, setSavingSupermarkets] = React.useState(false);
+            
+            const allSupermarkets = ['Lidl', 'Aldi', 'REWE', 'Kaufland', 'Edeka', 'Netto', 'Penny', 'Handelshof', 'Metro'];
 
             React.useEffect(() => {
                 loadHousehold();
@@ -2326,6 +2339,7 @@
                     const data = await res.json();
                     setHousehold(data);
                     setPostalCode(data.postal_code || '');
+                    setSelectedSupermarkets(data.preferred_supermarkets || ['Lidl', 'Aldi', 'REWE', 'Kaufland', 'Edeka', 'Netto', 'Penny']);
                 } catch (e) { console.error(e); }
                 setLoading(false);
             };
@@ -2349,6 +2363,27 @@
                     setHousehold(prev => ({ ...prev, postal_code: postalCode }));
                 } catch (e) { console.error(e); }
                 setSavingPostal(false);
+            };
+
+            const toggleSupermarket = (supermarket) => {
+                setSelectedSupermarkets(prev => 
+                    prev.includes(supermarket) 
+                        ? prev.filter(s => s !== supermarket)
+                        : [...prev, supermarket]
+                );
+            };
+
+            const saveSupermarkets = async () => {
+                setSavingSupermarkets(true);
+                try {
+                    await authFetch(`${API_BASE}/auth/household`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ preferred_supermarkets: selectedSupermarkets })
+                    });
+                    setHousehold(prev => ({ ...prev, preferred_supermarkets: selectedSupermarkets }));
+                } catch (e) { console.error(e); }
+                setSavingSupermarkets(false);
             };
 
             return (
@@ -2428,6 +2463,34 @@
                                         </button>
                                     </div>
                                     <p className="text-xs text-gray-400 mt-1">Für lokale Supermarkt-Angebote</p>
+                                </div>
+
+                                {/* Supermarket selection */}
+                                <div className="border-t pt-4">
+                                    <p className="text-sm text-gray-500 mb-2">Meine Supermärkte</p>
+                                    <div className="grid grid-cols-3 gap-2">
+                                        {allSupermarkets.map(market => (
+                                            <label key={market} className="flex items-center gap-2 cursor-pointer">
+                                                <input 
+                                                    type="checkbox"
+                                                    checked={selectedSupermarkets.includes(market)}
+                                                    onChange={() => toggleSupermarket(market)}
+                                                    className="w-4 h-4 text-green-500 rounded focus:ring-green-500"
+                                                />
+                                                <span className="text-sm text-gray-700">{market}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                    <div className="flex items-center justify-between mt-3">
+                                        <p className="text-xs text-gray-400">Nur Angebote dieser Märkte anzeigen</p>
+                                        <button 
+                                            onClick={saveSupermarkets}
+                                            disabled={savingSupermarkets || JSON.stringify(selectedSupermarkets.sort()) === JSON.stringify((household.preferred_supermarkets || []).sort())}
+                                            className="px-3 py-1 bg-green-500 text-white text-sm rounded-lg hover:bg-green-600 disabled:opacity-50"
+                                        >
+                                            {savingSupermarkets ? '...' : 'Speichern'}
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         ) : (
