@@ -5,7 +5,7 @@ from typing import Optional
 from datetime import date, timedelta
 
 from app.core.database import get_db
-from app.models.models import PantryItem, Recipe, MealPlan, ShoppingItem, TasteProfile, RecurringMeal, User, Household
+from app.models.models import PantryItem, Recipe, MealPlan, ShoppingItem, TasteProfile, RecurringMeal, User, Household, IngredientCache
 from app.services import claude_ai, auth
 
 router = APIRouter()
@@ -499,13 +499,25 @@ async def get_shopping_list(
     return items
 
 
+def normalize_ingredient_key(ingredient: str) -> str:
+    """Create a normalized key from an ingredient for cache lookup"""
+    import re
+    # Remove amounts, units and normalize
+    cleaned = re.sub(r'^[\d.,/\s]+', '', ingredient)  # Remove leading numbers
+    cleaned = re.sub(r'\b\d+[.,]?\d*\s*(g|kg|ml|l|EL|TL|Stück|Scheiben?|Zehen?|Tbs|tsp|cup|cups|cloves?|tablespoons?|teaspoons?)\b', '', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip().lower()
+    # Remove common prefixes
+    cleaned = re.sub(r'^(etwa|ca\.?|circa|optional:?)\s*', '', cleaned, flags=re.IGNORECASE)
+    return cleaned[:100]  # Limit length
+
+
 @router.post("/shopping/generate")
 async def generate_shopping_list(
     request: ShoppingGenerateRequest = None,
     household_id: int = Depends(get_current_household),
     db: Session = Depends(get_db)
 ):
-    """Generate smart shopping list from meal plan with AI processing"""
+    """Generate smart shopping list from meal plan with AI processing and caching"""
     if not request or not request.dates:
         today = date.today()
         start_date = today - timedelta(days=today.weekday())
@@ -532,7 +544,6 @@ async def generate_shopping_list(
                 all_ingredients.append(ingredient)
     
     if not all_ingredients:
-        # Clear existing and return empty
         db.query(ShoppingItem).filter(ShoppingItem.household_id == household_id).delete()
         db.commit()
         return {
@@ -547,19 +558,139 @@ async def generate_shopping_list(
         PantryItem.household_id == household_id
     ).all()
     pantry_names = [p.name for p in pantry_items]
+    pantry_lower = [p.lower() for p in pantry_names]
     
-    # Use AI to process the shopping list
-    smart_list = await claude_ai.process_shopping_list(all_ingredients, pantry_names)
+    # Load cache
+    cache_entries = db.query(IngredientCache).filter(
+        IngredientCache.household_id == household_id
+    ).all()
+    cache_dict = {c.ingredient_key: c for c in cache_entries}
     
-    # Clear existing shopping list
+    # Separate cached and uncached ingredients
+    cached_items = []
+    uncached_ingredients = []
+    basic_items = []
+    from_pantry = []
+    
+    # Track which ingredients we've seen (for deduplication)
+    seen_keys = set()
+    ingredient_counts = {}  # key -> list of original ingredients
+    
+    for ing in all_ingredients:
+        key = normalize_ingredient_key(ing)
+        if not key:
+            continue
+            
+        if key not in ingredient_counts:
+            ingredient_counts[key] = []
+        ingredient_counts[key].append(ing)
+    
+    # Process each unique ingredient
+    for key, original_list in ingredient_counts.items():
+        # Check if in pantry
+        in_pantry = any(p in key or key in p for p in pantry_lower)
+        
+        if key in cache_dict:
+            # We have it cached
+            cached = cache_dict[key]
+            if cached.is_basic:
+                basic_items.append({
+                    "name": cached.display_name or key,
+                    "category": cached.category
+                })
+            elif in_pantry:
+                from_pantry.append({
+                    "name": cached.display_name or key,
+                    "amount": "",
+                    "pantry_match": key
+                })
+            else:
+                cached_items.append({
+                    "name": cached.display_name or key,
+                    "amount": "",
+                    "category": cached.category,
+                    "original_items": original_list
+                })
+        else:
+            # Need to process with AI
+            uncached_ingredients.append(original_list[0])  # Send one example
+    
+    # Process uncached ingredients with AI (if any)
+    new_items = []
+    if uncached_ingredients:
+        smart_list = await claude_ai.process_shopping_list(uncached_ingredients, pantry_names)
+        
+        # Save to cache and collect items
+        for category in smart_list.get("categories", []):
+            for item in category.get("items", []):
+                key = normalize_ingredient_key(item.get("name", ""))
+                if key and key not in cache_dict:
+                    # Save to cache
+                    cache_entry = IngredientCache(
+                        household_id=household_id,
+                        ingredient_key=key,
+                        category=category.get("name", "Sonstiges"),
+                        display_name=item.get("name"),
+                        is_basic=False
+                    )
+                    db.add(cache_entry)
+                
+                new_items.append({
+                    "name": item.get("name"),
+                    "amount": item.get("amount", ""),
+                    "category": category.get("name", "Sonstiges")
+                })
+        
+        # Save basic items to cache
+        for item in smart_list.get("basic_items", []):
+            key = normalize_ingredient_key(item.get("name", ""))
+            if key and key not in cache_dict:
+                cache_entry = IngredientCache(
+                    household_id=household_id,
+                    ingredient_key=key,
+                    category=item.get("category", "Gewürze & Öle"),
+                    display_name=item.get("name"),
+                    is_basic=True
+                )
+                db.add(cache_entry)
+            basic_items.append(item)
+        
+        # Add from_pantry from AI
+        from_pantry.extend(smart_list.get("from_pantry", []))
+        
+        db.commit()
+    
+    # Combine cached and new items
+    all_shopping_items = cached_items + new_items
+    
+    # Group by category
+    categorized = {}
+    for item in all_shopping_items:
+        category = item.get("category", "Sonstiges")
+        if category not in categorized:
+            categorized[category] = []
+        categorized[category].append(item)
+    
+    # Define category order
+    category_order = [
+        "Obst & Gemüse", "Fleisch & Fisch", "Eier & Milchprodukte",
+        "Backwaren", "Tiefkühl", "Konserven & Fertigprodukte",
+        "Gewürze & Öle", "Getränke", "Sonstiges"
+    ]
+    
+    sorted_categories = []
+    for cat in category_order:
+        if cat in categorized:
+            sorted_categories.append({"name": cat, "items": categorized[cat]})
+    
+    # Clear and rebuild shopping items in DB
     db.query(ShoppingItem).filter(ShoppingItem.household_id == household_id).delete()
     
-    # Add categorized items to database
-    for category in smart_list.get("categories", []):
+    for category in sorted_categories:
         for item in category.get("items", []):
             display_name = f"{item.get('amount', '')} {item.get('name', '')}".strip()
             db_item = ShoppingItem(
-                household_id=household_id, 
+                household_id=household_id,
                 name=display_name,
                 category=category.get("name", "Sonstiges")
             )
@@ -567,15 +698,14 @@ async def generate_shopping_list(
     
     db.commit()
     
-    # Get all items for legacy support
     items = db.query(ShoppingItem).filter(
         ShoppingItem.household_id == household_id
     ).order_by(ShoppingItem.category, ShoppingItem.name).all()
     
     return {
-        "categories": smart_list.get("categories", []),
-        "from_pantry": smart_list.get("from_pantry", []),
-        "basic_items": smart_list.get("basic_items", []),
+        "categories": sorted_categories,
+        "from_pantry": from_pantry,
+        "basic_items": basic_items,
         "items": [{"id": i.id, "name": i.name, "checked": i.checked, "category": i.category} for i in items]
     }
 
