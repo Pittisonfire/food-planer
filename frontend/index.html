@@ -1180,6 +1180,17 @@
                                     }`}>
                                     <Icons.Search /> Rezepte
                                 </button>
+                                <button onClick={() => setActiveTab('favorites')}
+                                    className={`px-4 py-2 rounded-lg font-medium transition whitespace-nowrap flex items-center gap-2 ${
+                                        activeTab === 'favorites' ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                    }`}>
+                                    <Icons.Heart filled={activeTab === 'favorites'} /> Favoriten
+                                    {savedRecipes.filter(r => r.is_favorite).length > 0 && (
+                                        <span className={`text-xs px-2 py-0.5 rounded-full ${activeTab === 'favorites' ? 'bg-white text-red-500' : 'bg-red-500 text-white'}`}>
+                                            {savedRecipes.filter(r => r.is_favorite).length}
+                                        </span>
+                                    )}
+                                </button>
                                 <button onClick={() => setActiveTab('plan')}
                                     className={`px-4 py-2 rounded-lg font-medium transition whitespace-nowrap flex items-center gap-2 ${
                                         activeTab === 'plan' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -1215,28 +1226,27 @@
                     <div className="max-w-7xl mx-auto px-4 py-6">
                         {/* Search Tab */}
                         {activeTab === 'search' && (
-                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                                <div className="lg:col-span-2 space-y-4">
-                                    {/* Mode Toggle */}
-                                    <div className="bg-white rounded-xl p-4 shadow-sm">
-                                        <div className="flex gap-2 mb-4">
-                                            <button onClick={() => setSearchMode('craving')}
-                                                className={`flex-1 py-3 rounded-lg font-medium transition ${
-                                                    searchMode === 'craving' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'
-                                                }`}>
-                                                Ich hab Lust auf...
-                                            </button>
-                                            <button onClick={() => setSearchMode('pantry')}
-                                                className={`flex-1 py-3 rounded-lg font-medium transition ${
-                                                    searchMode === 'pantry' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600'
-                                                }`}>
-                                                Was hab ich zuhause?
-                                            </button>
-                                        </div>
+                            <div className="max-w-3xl mx-auto space-y-4">
+                                {/* Mode Toggle */}
+                                <div className="bg-white rounded-xl p-4 shadow-sm">
+                                    <div className="flex gap-2 mb-4">
+                                        <button onClick={() => setSearchMode('craving')}
+                                            className={`flex-1 py-3 rounded-lg font-medium transition ${
+                                                searchMode === 'craving' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'
+                                            }`}>
+                                            Ich hab Lust auf...
+                                        </button>
+                                        <button onClick={() => setSearchMode('pantry')}
+                                            className={`flex-1 py-3 rounded-lg font-medium transition ${
+                                                searchMode === 'pantry' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-600'
+                                            }`}>
+                                            Was hab ich zuhause?
+                                        </button>
+                                    </div>
 
-                                        {searchMode === 'craving' ? (
-                                            <div className="space-y-3">
-                                                {/* AI Search Info */}
+                                    {searchMode === 'craving' ? (
+                                        <div className="space-y-3">
+                                            {/* AI Search Info */}
                                                 <div className="flex items-center gap-2 text-sm text-purple-600 bg-purple-50 px-3 py-2 rounded-lg">
                                                     <Icons.Sparkles />
                                                     <span>AI-gesteuerte Rezeptsuche - unbegrenzt</span>
@@ -1391,42 +1401,55 @@
                                             </button>
                                         </div>
                                     )}
-                                </div>
+                            </div>
+                        )}
 
-                                {/* Favorites Sidebar */}
-                                <div className="lg:col-span-1">
-                                    <div className="bg-white rounded-xl shadow-sm sticky top-28">
-                                        <div className="p-4 border-b">
-                                            <h3 className="font-bold text-gray-800 flex items-center gap-2">
-                                                <Icons.Heart filled={true} /> Favoriten
-                                            </h3>
+                        {/* Favorites Tab */}
+                        {activeTab === 'favorites' && (
+                            <div className="max-w-4xl mx-auto">
+                                <div className="bg-white rounded-xl shadow-sm">
+                                    <div className="p-4 border-b">
+                                        <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                                            <Icons.Heart filled={true} /> Meine Favoriten
+                                        </h2>
+                                        <p className="text-sm text-gray-500 mt-1">Deine Lieblingsrezepte auf einen Blick</p>
+                                    </div>
+                                    {savedRecipes.filter(r => r.is_favorite).length === 0 ? (
+                                        <div className="p-12 text-center text-gray-400">
+                                            <div className="text-6xl mb-4 opacity-30">❤️</div>
+                                            <p className="text-lg font-medium">Noch keine Favoriten</p>
+                                            <p className="text-sm mt-2">Tippe auf das Herz bei einem Rezept, um es hier zu speichern</p>
                                         </div>
-                                        {savedRecipes.filter(r => r.is_favorite).length === 0 ? (
-                                            <div className="p-6 text-center text-gray-400">
-                                                <div className="text-4xl mb-2 opacity-30">❤️</div>
-                                                <p className="text-sm">Noch keine Favoriten</p>
-                                                <p className="text-xs mt-1">Tippe auf das Herz bei einem Rezept</p>
-                                            </div>
-                                        ) : (
-                                            <div className="divide-y max-h-[400px] overflow-y-auto">
-                                                {savedRecipes.filter(r => r.is_favorite).map(recipe => (
-                                                    <div key={recipe.id} 
-                                                        onClick={() => setRecipeModal(recipe)}
-                                                        className="p-3 hover:bg-gray-50 cursor-pointer transition flex items-center gap-3">
-                                                        {recipe.image_url ? (
-                                                            <img src={recipe.image_url} alt="" className="w-12 h-12 rounded-lg object-cover flex-shrink-0" />
-                                                        ) : (
-                                                            <div className="w-12 h-12 rounded-lg bg-orange-100 flex items-center justify-center text-xl flex-shrink-0">🍽️</div>
-                                                        )}
-                                                        <div className="flex-1 min-w-0">
-                                                            <p className="text-sm font-medium text-gray-700 truncate">{recipe.title}</p>
-                                                            <p className="text-xs text-gray-400">{recipe.calories || '?'} kcal</p>
+                                    ) : (
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
+                                            {savedRecipes.filter(r => r.is_favorite).map(recipe => (
+                                                <div key={recipe.id} 
+                                                    className="bg-gray-50 rounded-xl overflow-hidden hover:shadow-md transition cursor-pointer"
+                                                    onClick={() => setRecipeModal(recipe)}>
+                                                    {recipe.image_url ? (
+                                                        <img src={recipe.image_url} alt="" className="w-full h-32 object-cover" />
+                                                    ) : (
+                                                        <div className="w-full h-32 bg-orange-100 flex items-center justify-center text-4xl">🍽️</div>
+                                                    )}
+                                                    <div className="p-3">
+                                                        <h3 className="font-medium text-gray-800 truncate">{recipe.title}</h3>
+                                                        <div className="flex items-center gap-3 mt-2 text-sm text-gray-500">
+                                                            {recipe.calories && (
+                                                                <span className="flex items-center gap-1">
+                                                                    <Icons.Flame /> {recipe.calories} kcal
+                                                                </span>
+                                                            )}
+                                                            {recipe.ready_in_minutes && (
+                                                                <span className="flex items-center gap-1">
+                                                                    <Icons.Clock /> {recipe.ready_in_minutes} min
+                                                                </span>
+                                                            )}
                                                         </div>
                                                     </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         )}
