@@ -212,10 +212,14 @@ async def get_household_info(request: Request, db: Session = Depends(get_db)):
     # Get all users in household
     users = db.query(User).filter(User.household_id == household.id).all()
     
+    # Parse preferred supermarkets
+    supermarkets = household.preferred_supermarkets.split(",") if household.preferred_supermarkets else []
+    
     return {
         "id": household.id,
         "name": household.name,
         "postal_code": household.postal_code,
+        "preferred_supermarkets": supermarkets,
         "invite_code": household.invite_code if user.is_admin else None,
         "members": [
             {"id": u.id, "username": u.username, "display_name": u.display_name, "is_admin": u.is_admin}
@@ -226,6 +230,7 @@ async def get_household_info(request: Request, db: Session = Depends(get_db)):
 
 class HouseholdUpdate(BaseModel):
     postal_code: Optional[str] = None
+    preferred_supermarkets: Optional[list[str]] = None
 
 
 @router.put("/household")
@@ -254,7 +259,12 @@ async def update_household(data: HouseholdUpdate, request: Request, db: Session 
     if data.postal_code is not None:
         household.postal_code = data.postal_code
     
+    if data.preferred_supermarkets is not None:
+        household.preferred_supermarkets = ",".join(data.preferred_supermarkets)
+    
     db.commit()
     db.refresh(household)
     
-    return {"status": "updated", "postal_code": household.postal_code}
+    supermarkets = household.preferred_supermarkets.split(",") if household.preferred_supermarkets else []
+    
+    return {"status": "updated", "postal_code": household.postal_code, "preferred_supermarkets": supermarkets}
