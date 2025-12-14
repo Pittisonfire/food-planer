@@ -588,7 +588,9 @@
             const getTwoWeekDates = () => {
                 const today = new Date();
                 const monday = new Date(today);
-                monday.setDate(today.getDate() - today.getDay() + 1);
+                // Fix: Sonntag (getDay()=0) wird als Tag 7 behandelt, nicht 0
+                const dayOfWeek = today.getDay() || 7; // Sun=7, Mon=1, ..., Sat=6
+                monday.setDate(today.getDate() - dayOfWeek + 1);
                 
                 const weeks = [];
                 
