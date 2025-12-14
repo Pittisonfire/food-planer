@@ -477,6 +477,7 @@ async def analyze_taste_profile(db: Session = Depends(get_db)):
 class AutoPlanRequest(BaseModel):
     days: int = 7
     start_date: Optional[date] = None
+    meal_types: list[str] = ["lunch"]  # breakfast, lunch, dinner
 
 
 @router.post("/mealplan/auto-generate")
@@ -503,12 +504,16 @@ async def auto_generate_mealplan(request: AutoPlanRequest, db: Session = Depends
     pantry = db.query(PantryItem).all()
     pantry_items = [p.name for p in pantry]
     
+    # Calculate total recipes needed (days * meal_types)
+    total_recipes_needed = request.days * len(request.meal_types)
+    
     # Generate recipes with Claude
     recipes = await claude_ai.generate_week_plan(
         taste_profile=profile_data,
-        days=request.days,
+        days=total_recipes_needed,  # Get enough recipes for all meal types
         existing_plan=existing_dicts,
-        pantry_items=pantry_items
+        pantry_items=pantry_items,
+        meal_types=request.meal_types
     )
     
     if not recipes:
@@ -516,48 +521,52 @@ async def auto_generate_mealplan(request: AutoPlanRequest, db: Session = Depends
     
     # Save recipes and create meal plans
     created_plans = []
-    current_date = start
+    recipe_index = 0
     
-    for recipe_data in recipes:
-        # Skip days that already have meals
-        while current_date < end:
-            day_has_meal = any(mp.date == current_date for mp in existing_plans)
-            if not day_has_meal:
-                break
-            current_date += timedelta(days=1)
+    for day_offset in range(request.days):
+        current_date = start + timedelta(days=day_offset)
         
-        if current_date >= end:
-            break
-        
-        # Create recipe
-        recipe = Recipe(
-            title=recipe_data.get("title", "Unbekannt"),
-            calories=recipe_data.get("calories"),
-            ready_in_minutes=recipe_data.get("ready_in_minutes"),
-            servings=recipe_data.get("servings", 2),
-            ingredients=recipe_data.get("ingredients", []),
-            instructions=recipe_data.get("instructions", []),
-            source="claude",
-            taste_score=recipe_data.get("taste_score"),
-            tags=recipe_data.get("tags", [])
-        )
-        db.add(recipe)
-        db.flush()  # Get the ID
-        
-        # Create meal plan entry
-        meal_plan = MealPlan(
-            recipe_id=recipe.id,
-            date=current_date,
-            meal_type="lunch"  # Default to lunch
-        )
-        db.add(meal_plan)
-        
-        created_plans.append({
-            "date": current_date.isoformat(),
-            "recipe": recipe_data
-        })
-        
-        current_date += timedelta(days=1)
+        for meal_type in request.meal_types:
+            # Check if this slot already has a meal
+            slot_has_meal = any(
+                mp.date == current_date and mp.meal_type == meal_type 
+                for mp in existing_plans
+            )
+            
+            if slot_has_meal or recipe_index >= len(recipes):
+                continue
+            
+            recipe_data = recipes[recipe_index]
+            recipe_index += 1
+            
+            # Create recipe
+            recipe = Recipe(
+                title=recipe_data.get("title", "Unbekannt"),
+                calories=recipe_data.get("calories"),
+                ready_in_minutes=recipe_data.get("ready_in_minutes"),
+                servings=recipe_data.get("servings", 2),
+                ingredients=recipe_data.get("ingredients", []),
+                instructions=recipe_data.get("instructions", []),
+                source="claude",
+                taste_score=recipe_data.get("taste_score"),
+                tags=recipe_data.get("tags", [])
+            )
+            db.add(recipe)
+            db.flush()  # Get the ID
+            
+            # Create meal plan entry
+            meal_plan = MealPlan(
+                recipe_id=recipe.id,
+                date=current_date,
+                meal_type=meal_type
+            )
+            db.add(meal_plan)
+            
+            created_plans.append({
+                "date": current_date.isoformat(),
+                "meal_type": meal_type,
+                "recipe": recipe_data
+            })
     
     db.commit()
     
