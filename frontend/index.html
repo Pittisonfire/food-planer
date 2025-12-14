@@ -69,6 +69,7 @@
             const [autoPlanning, setAutoPlanning] = React.useState(false);  // Auto-plan loading state
             const [recurringMeals, setRecurringMeals] = React.useState([]);  // Recurring meal rules
             const [showRecurringModal, setShowRecurringModal] = React.useState(false);  // Modal for adding recurring meals
+            const [showAutoPlanModal, setShowAutoPlanModal] = React.useState(false);  // Modal for auto-plan options
 
             // Day notes functions - now supports multiple notes per section
             const addDayNote = (date, mealType, note) => {
@@ -473,6 +474,86 @@
                 );
             };
 
+            // Auto-Plan Modal Component
+            const AutoPlanModal = ({ onClose, onGenerate, isLoading }) => {
+                const [selectedMealTypes, setSelectedMealTypes] = React.useState(['lunch']);
+                const [days, setDays] = React.useState(7);
+                
+                const mealTypeOptions = [
+                    { type: 'breakfast', name: 'Frühstück', color: 'orange' },
+                    { type: 'lunch', name: 'Mittagessen', color: 'yellow' },
+                    { type: 'dinner', name: 'Abendessen', color: 'indigo' },
+                ];
+                
+                const toggleMealType = (type) => {
+                    if (selectedMealTypes.includes(type)) {
+                        if (selectedMealTypes.length > 1) {
+                            setSelectedMealTypes(prev => prev.filter(t => t !== type));
+                        }
+                    } else {
+                        setSelectedMealTypes(prev => [...prev, type]);
+                    }
+                };
+                
+                const handleGenerate = () => {
+                    onGenerate(days, selectedMealTypes);
+                };
+                
+                return (
+                    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+                        <div className="bg-white rounded-2xl max-w-sm w-full p-5" onClick={e => e.stopPropagation()}>
+                            <h3 className="text-lg font-bold text-gray-800 mb-4">Auto-Plan erstellen</h3>
+                            
+                            <p className="text-sm text-gray-500 mb-2">Welche Mahlzeiten planen?</p>
+                            <div className="space-y-2 mb-4">
+                                {mealTypeOptions.map(({ type, name, color }) => (
+                                    <button key={type}
+                                        onClick={() => toggleMealType(type)}
+                                        className={`w-full py-3 px-4 rounded-lg text-left font-medium transition flex items-center justify-between ${
+                                            selectedMealTypes.includes(type) 
+                                                ? `bg-${color}-100 text-${color}-700 border-2 border-${color}-300` 
+                                                : 'bg-gray-50 text-gray-600 border-2 border-transparent hover:bg-gray-100'
+                                        }`}>
+                                        {name}
+                                        {selectedMealTypes.includes(type) && (
+                                            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                            </svg>
+                                        )}
+                                    </button>
+                                ))}
+                            </div>
+                            
+                            <p className="text-sm text-gray-500 mb-2">Für wie viele Tage?</p>
+                            <div className="flex gap-2 mb-6">
+                                {[3, 5, 7, 14].map(d => (
+                                    <button key={d}
+                                        onClick={() => setDays(d)}
+                                        className={`flex-1 py-2 rounded-lg font-medium ${
+                                            days === d 
+                                                ? 'bg-purple-500 text-white' 
+                                                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                        }`}>
+                                        {d} Tage
+                                    </button>
+                                ))}
+                            </div>
+                            
+                            <div className="flex gap-2">
+                                <button onClick={onClose} className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">
+                                    Abbrechen
+                                </button>
+                                <button onClick={handleGenerate}
+                                    disabled={isLoading || selectedMealTypes.length === 0}
+                                    className="flex-1 py-3 bg-purple-500 text-white rounded-lg hover:bg-purple-600 disabled:opacity-50 font-medium">
+                                    {isLoading ? 'Plane...' : 'Plan erstellen'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
             // Get calendar week number (ISO week)
             const getWeekNumber = (date) => {
                 const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
@@ -584,14 +665,15 @@
                 setLoading(false);
             };
 
-            const autoGeneratePlan = async (days = 7) => {
+            const autoGeneratePlan = async (days = 7, mealTypes = ['lunch']) => {
                 setAutoPlanning(true);
+                setShowAutoPlanModal(false);
                 try {
                     const today = new Date().toISOString().split('T')[0];
                     const res = await fetch(`${API_BASE}/mealplan/auto-generate`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ days, start_date: today })
+                        body: JSON.stringify({ days, start_date: today, meal_types: mealTypes })
                     });
                     const data = await res.json();
                     if (data.status === 'created') {
@@ -1120,13 +1202,13 @@
                                         )}
                                     </div>
                                     <div className="flex gap-2">
-                                        <button onClick={() => autoGeneratePlan(7)}
+                                        <button onClick={() => setShowAutoPlanModal(true)}
                                             disabled={autoPlanning}
                                             className="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 disabled:opacity-50 flex items-center gap-2 text-sm">
                                             {autoPlanning ? (
                                                 <><span className="animate-spin">...</span> Plane...</>
                                             ) : (
-                                                <><Icons.Search /> Auto-Plan</>
+                                                <><Icons.Sparkles /> Auto-Plan</>
                                             )}
                                         </button>
                                         <button onClick={() => setActiveTab('shopping')}
@@ -1524,6 +1606,9 @@
                     
                     {/* Recurring Meal Modal */}
                     {showRecurringModal && <RecurringMealModal onClose={() => setShowRecurringModal(false)} savedRecipes={savedRecipes} />}
+                    
+                    {/* Auto-Plan Modal */}
+                    {showAutoPlanModal && <AutoPlanModal onClose={() => setShowAutoPlanModal(false)} onGenerate={autoGeneratePlan} isLoading={autoPlanning} />}
                 </div>
             );
         }
