@@ -1,12 +1,43 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, Float, Date, DateTime, JSON
+from sqlalchemy import Column, Integer, String, Text, Boolean, Float, Date, DateTime, JSON, ForeignKey
 from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
 from app.core.database import Base
+
+
+class Household(Base):
+    """A household/family that shares recipes and meal plans"""
+    __tablename__ = "households"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)  # e.g. "Familie Müller"
+    invite_code = Column(String(20), unique=True, nullable=True)  # For inviting others
+    created_at = Column(DateTime, server_default=func.now())
+    
+    # Relationships
+    users = relationship("User", back_populates="household")
+
+
+class User(Base):
+    """A user who belongs to a household"""
+    __tablename__ = "users"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String(100), unique=True, nullable=False)
+    password_hash = Column(String(255), nullable=False)
+    display_name = Column(String(255), nullable=True)
+    household_id = Column(Integer, ForeignKey("households.id"), nullable=False)
+    is_admin = Column(Boolean, default=False)  # Admin of the household
+    created_at = Column(DateTime, server_default=func.now())
+    
+    # Relationships
+    household = relationship("Household", back_populates="users")
 
 
 class PantryItem(Base):
     __tablename__ = "pantry_items"
     
     id = Column(Integer, primary_key=True, index=True)
+    household_id = Column(Integer, ForeignKey("households.id"), nullable=False, index=True)
     name = Column(String(255), nullable=False)
     created_at = Column(DateTime, server_default=func.now())
 
@@ -15,6 +46,7 @@ class Recipe(Base):
     __tablename__ = "recipes"
     
     id = Column(Integer, primary_key=True, index=True)
+    household_id = Column(Integer, ForeignKey("households.id"), nullable=False, index=True)
     external_id = Column(String(100), nullable=True)  # Spoonacular ID
     source = Column(String(50), default="spoonacular")  # spoonacular, claude, instagram
     title = Column(String(500), nullable=False)
@@ -35,6 +67,7 @@ class MealPlan(Base):
     __tablename__ = "meal_plans"
     
     id = Column(Integer, primary_key=True, index=True)
+    household_id = Column(Integer, ForeignKey("households.id"), nullable=False, index=True)
     recipe_id = Column(Integer, nullable=False)
     date = Column(Date, nullable=False)
     meal_type = Column(String(50), default="main")  # breakfast, lunch, dinner, snack
@@ -45,6 +78,7 @@ class ShoppingItem(Base):
     __tablename__ = "shopping_items"
     
     id = Column(Integer, primary_key=True, index=True)
+    household_id = Column(Integer, ForeignKey("households.id"), nullable=False, index=True)
     name = Column(String(500), nullable=False)
     checked = Column(Boolean, default=False)
     created_at = Column(DateTime, server_default=func.now())
@@ -55,6 +89,7 @@ class RecurringMeal(Base):
     __tablename__ = "recurring_meals"
     
     id = Column(Integer, primary_key=True, index=True)
+    household_id = Column(Integer, ForeignKey("households.id"), nullable=False, index=True)
     weekday = Column(Integer, nullable=False)  # 0=Monday, 6=Sunday
     meal_type = Column(String(50), default="dinner")  # breakfast, lunch, dinner, snack
     recipe_id = Column(Integer, nullable=True)  # Link to a specific recipe
@@ -67,6 +102,7 @@ class TasteProfile(Base):
     __tablename__ = "taste_profile"
     
     id = Column(Integer, primary_key=True, index=True)
+    household_id = Column(Integer, ForeignKey("households.id"), nullable=False, index=True)
     profile_data = Column(JSON, default=dict)  # Learned preferences
     # Example: {
     #   "liked_cuisines": ["italienisch", "asiatisch"],
