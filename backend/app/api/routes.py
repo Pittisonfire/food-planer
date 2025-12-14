@@ -256,11 +256,54 @@ async def get_pantry(
     household_id: int = Depends(get_current_household),
     db: Session = Depends(get_db)
 ):
-    """Get all pantry items"""
+    """Get all pantry items with planned status"""
     items = db.query(PantryItem).filter(
         PantryItem.household_id == household_id
     ).order_by(PantryItem.name).all()
-    return items
+    
+    # Get upcoming meal plans (next 14 days)
+    today = date.today()
+    end_date = today + timedelta(days=14)
+    
+    plans = db.query(MealPlan).filter(
+        MealPlan.household_id == household_id,
+        MealPlan.date >= today,
+        MealPlan.date <= end_date
+    ).all()
+    
+    # Collect all ingredients from planned meals with dates
+    planned_ingredients = {}
+    for plan in plans:
+        recipe = db.query(Recipe).filter(Recipe.id == plan.recipe_id).first()
+        if recipe and recipe.ingredients:
+            for ingredient in recipe.ingredients:
+                ing_lower = ingredient.lower()
+                if ing_lower not in planned_ingredients:
+                    planned_ingredients[ing_lower] = []
+                # Format date nicely
+                day_name = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"][plan.date.weekday()]
+                planned_ingredients[ing_lower].append(f"{day_name} {plan.date.day}.{plan.date.month}")
+    
+    # Match pantry items with planned ingredients
+    result = []
+    for item in items:
+        item_data = {
+            "id": item.id,
+            "name": item.name,
+            "created_at": item.created_at,
+            "planned_for": []
+        }
+        
+        # Check if this pantry item is needed
+        item_lower = item.name.lower()
+        for ing, dates in planned_ingredients.items():
+            if item_lower in ing or ing in item_lower:
+                item_data["planned_for"] = dates[:5]  # Max 5 dates
+                break
+        
+        result.append(item_data)
+    
+    return result
 
 
 @router.post("/pantry")
@@ -462,7 +505,7 @@ async def generate_shopping_list(
     household_id: int = Depends(get_current_household),
     db: Session = Depends(get_db)
 ):
-    """Generate shopping list from meal plan"""
+    """Generate smart shopping list from meal plan with AI processing"""
     if not request or not request.dates:
         today = date.today()
         start_date = today - timedelta(days=today.weekday())
@@ -480,43 +523,61 @@ async def generate_shopping_list(
             MealPlan.date.in_(date_objects)
         ).all()
     
-    # Collect all ingredients
-    all_ingredients = set()
+    # Collect all ingredients with recipe info
+    all_ingredients = []
     for plan in plans:
         recipe = db.query(Recipe).filter(Recipe.id == plan.recipe_id).first()
         if recipe and recipe.ingredients:
             for ingredient in recipe.ingredients:
-                all_ingredients.add(ingredient)
+                all_ingredients.append(ingredient)
     
-    # Get pantry items to exclude
+    if not all_ingredients:
+        # Clear existing and return empty
+        db.query(ShoppingItem).filter(ShoppingItem.household_id == household_id).delete()
+        db.commit()
+        return {
+            "categories": [],
+            "from_pantry": [],
+            "basic_items": [],
+            "items": []
+        }
+    
+    # Get pantry items
     pantry_items = db.query(PantryItem).filter(
         PantryItem.household_id == household_id
     ).all()
-    pantry_names = [p.name.lower() for p in pantry_items]
+    pantry_names = [p.name for p in pantry_items]
     
-    def is_in_pantry(ingredient: str) -> bool:
-        ingredient_lower = ingredient.lower()
-        for pantry_name in pantry_names:
-            if pantry_name in ingredient_lower or ingredient_lower in pantry_name:
-                return True
-        return False
+    # Use AI to process the shopping list
+    smart_list = await claude_ai.process_shopping_list(all_ingredients, pantry_names)
     
-    filtered_ingredients = [ing for ing in all_ingredients if not is_in_pantry(ing)]
-    
-    # Clear existing shopping list for this household
+    # Clear existing shopping list
     db.query(ShoppingItem).filter(ShoppingItem.household_id == household_id).delete()
     
-    # Add new items
-    for ingredient in sorted(filtered_ingredients):
-        item = ShoppingItem(household_id=household_id, name=ingredient)
-        db.add(item)
+    # Add categorized items to database
+    for category in smart_list.get("categories", []):
+        for item in category.get("items", []):
+            display_name = f"{item.get('amount', '')} {item.get('name', '')}".strip()
+            db_item = ShoppingItem(
+                household_id=household_id, 
+                name=display_name,
+                category=category.get("name", "Sonstiges")
+            )
+            db.add(db_item)
     
     db.commit()
     
+    # Get all items for legacy support
     items = db.query(ShoppingItem).filter(
         ShoppingItem.household_id == household_id
-    ).order_by(ShoppingItem.name).all()
-    return items
+    ).order_by(ShoppingItem.category, ShoppingItem.name).all()
+    
+    return {
+        "categories": smart_list.get("categories", []),
+        "from_pantry": smart_list.get("from_pantry", []),
+        "basic_items": smart_list.get("basic_items", []),
+        "items": [{"id": i.id, "name": i.name, "checked": i.checked, "category": i.category} for i in items]
+    }
 
 
 @router.post("/shopping")
