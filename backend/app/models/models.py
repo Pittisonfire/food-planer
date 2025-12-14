@@ -12,6 +12,7 @@ class Household(Base):
     name = Column(String(255), nullable=False)  # e.g. "Familie Müller"
     invite_code = Column(String(20), unique=True, nullable=True)  # For inviting others
     postal_code = Column(String(10), nullable=True)  # PLZ for local offers
+    preferred_supermarkets = Column(Text, nullable=True)  # Comma-separated: "Lidl,REWE,Aldi"
     created_at = Column(DateTime, server_default=func.now())
     
     # Relationships
