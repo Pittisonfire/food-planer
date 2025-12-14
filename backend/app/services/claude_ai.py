@@ -821,113 +821,99 @@ async def search_supermarket_offers(
     postal_code: str,
     supermarkets: list[str] = ["Lidl", "Aldi Nord", "Rewe"]
 ) -> list[dict]:
-    """Search for current supermarket offers for given items"""
+    """Search for current supermarket offers using Marktguru API"""
     
-    # Select top items to search (expensive ones like meat, cheese, fish)
-    items_to_search = items[:8]  # Max 8 items to keep it fast
+    # Marktguru API - free and reliable
+    MARKTGURU_URL = "https://api.marktguru.de/api/v1/offers/search"
+    MARKTGURU_HEADERS = {
+        "x-clientkey": "WU/RH+PMGDi+gkZer3WbMelt6zcYHSTytNB7VpTia90=",
+        "x-apikey": "8Kk+pmbf7TgJ9nVj2cXeA7P5zBGv8iuutVVMRfOfvNE="
+    }
     
-    print(f"Searching offers for: {items_to_search} in PLZ {postal_code}")
+    # Extract product names from items (remove quantities)
+    search_terms = []
+    for item in items[:10]:  # Max 10 items
+        # Remove quantities and units to get core product name
+        cleaned = re.sub(r'^[\d.,/\s]+', '', item)
+        cleaned = re.sub(r'\b\d+[.,]?\d*\s*(g|kg|ml|l|EL|TL|Stück)\b', '', cleaned, flags=re.IGNORECASE)
+        cleaned = cleaned.strip()
+        if cleaned and len(cleaned) > 2:
+            # Take first 2-3 words as search term
+            words = cleaned.split()[:3]
+            search_terms.append(' '.join(words))
     
-    search_query = f"""Suche aktuelle Supermarkt-Angebote für diese Woche in PLZ {postal_code}.
-
-Supermärkte: {', '.join(supermarkets)}
-
-Artikel die ich suche:
-{chr(10).join(f'- {item}' for item in items_to_search)}
-
-Finde aktuelle Angebote (diese Woche gültig) für diese Artikel.
-Suche auf Seiten wie kaufDA, Marktguru, oder direkt bei den Supermärkten (lidl.de, aldi-nord.de, rewe.de)."""
-
+    # Remove duplicates
+    search_terms = list(dict.fromkeys(search_terms))
+    
+    print(f"Searching Marktguru for: {search_terms} in PLZ {postal_code}")
+    
+    all_offers = []
+    seen_offers = set()  # Deduplicate
+    
     try:
-        # Use httpx for web search beta
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": settings.anthropic_api_key,
-                    "anthropic-version": "2023-06-01",
-                    "anthropic-beta": "web-search-2025-03-05",
-                    "content-type": "application/json"
-                },
-                json={
-                    "model": "claude-sonnet-4-20250514",
-                    "max_tokens": 3000,
-                    "tools": [{
-                        "type": "web_search_20250305",
-                        "name": "web_search"
-                    }],
-                    "messages": [
-                        {"role": "user", "content": search_query}
-                    ]
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            for term in search_terms[:8]:  # Max 8 searches
+                params = {
+                    "as": "web",
+                    "limit": 5,
+                    "offset": 0,
+                    "q": term,
+                    "zipCode": postal_code
                 }
-            )
-            
-            result = response.json()
-            print(f"Web search API response status: {response.status_code}")
-            
-            # Check for API error
-            if "error" in result:
-                print(f"Web search API error: {result['error']}")
-                return []
-            
-            # Extract text from response
-            response_text = ""
-            for block in result.get("content", []):
-                if block.get("type") == "text":
-                    response_text += block.get("text", "")
-            
-            print(f"Web search response length: {len(response_text)} chars")
+                
+                response = await client.get(
+                    MARKTGURU_URL,
+                    params=params,
+                    headers=MARKTGURU_HEADERS
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    
+                    for result in data.get('results', []):
+                        retailer = result.get('advertisers', [{}])[0].get('name', '')
+                        
+                        # Filter by preferred supermarkets
+                        if not any(s.lower() in retailer.lower() for s in supermarkets):
+                            continue
+                        
+                        offer_id = result.get('id')
+                        if offer_id in seen_offers:
+                            continue
+                        seen_offers.add(offer_id)
+                        
+                        # Parse validity dates
+                        valid_from = ""
+                        valid_to = ""
+                        validity = result.get('validityDates', [])
+                        if validity:
+                            from_date = validity[0].get('from', '')
+                            to_date = validity[0].get('to', '')
+                            if from_date:
+                                valid_from = from_date[8:10] + "." + from_date[5:7] + "."
+                            if to_date:
+                                valid_to = to_date[8:10] + "." + to_date[5:7] + "."
+                        
+                        # Format price
+                        price = result.get('price')
+                        old_price = result.get('oldPrice')
+                        
+                        offer = {
+                            "item": result.get('product', {}).get('name', term),
+                            "supermarket": retailer,
+                            "price": f"{price:.2f}€" if price else "",
+                            "original_price": f"{old_price:.2f}€" if old_price else "",
+                            "valid_from": valid_from,
+                            "valid_until": valid_to,
+                            "details": result.get('description', '')
+                        }
+                        all_offers.append(offer)
         
-        if not response_text:
-            print("No response text from web search")
-            return []
-        
-        # Now parse the offers with another Claude call
-        parse_client = get_claude_client()
-        
-        parse_prompt = f"""Extrahiere die gefundenen Angebote aus diesem Text und gib sie als JSON zurück.
-
-TEXT:
-{response_text}
-
-Antworte NUR mit einem JSON-Array in diesem Format:
-[
-  {{
-    "item": "Hackfleisch",
-    "supermarket": "Lidl",
-    "price": "2,99€",
-    "original_price": "3,49€",
-    "valid_from": "16.12.",
-    "valid_until": "21.12.",
-    "details": "500g gemischt"
-  }}
-]
-
-Falls keine Angebote gefunden wurden, antworte mit: []
-Antworte NUR mit validem JSON:"""
-
-        parse_message = parse_client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=2000,
-            messages=[
-                {"role": "user", "content": parse_prompt}
-            ]
-        )
-        
-        parse_response = parse_message.content[0].text.strip()
-        print(f"Parse response: {parse_response[:200]}...")
-        
-        # Clean up response
-        if parse_response.startswith("```"):
-            parse_response = re.sub(r'^```(?:json)?\n?', '', parse_response)
-            parse_response = re.sub(r'\n?```$', '', parse_response)
-        
-        offers = json.loads(parse_response)
-        print(f"Found {len(offers)} offers")
-        return offers
+        print(f"Found {len(all_offers)} offers from Marktguru")
+        return all_offers
         
     except Exception as e:
-        print(f"Offer search error: {e}")
+        print(f"Marktguru search error: {e}")
         import traceback
         traceback.print_exc()
         return []
