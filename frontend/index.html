@@ -251,6 +251,8 @@
             const [shoppingFromPantry, setShoppingFromPantry] = React.useState([]);  // Items from pantry
             const [shoppingBasicItems, setShoppingBasicItems] = React.useState([]);  // Basic items to check
             const [shoppingLoading, setShoppingLoading] = React.useState(false);  // AI processing indicator
+            const [shoppingOffers, setShoppingOffers] = React.useState([]);  // Supermarket offers
+            const [offersLoading, setOffersLoading] = React.useState(false);  // Offers loading indicator
             const [selectedRecipe, setSelectedRecipe] = React.useState(null);
             const [loading, setLoading] = React.useState(false);
             const [draggedMeal, setDraggedMeal] = React.useState(null);
@@ -1166,6 +1168,35 @@
                 } catch (e) { console.error(e); }
             };
 
+            const searchOffers = async () => {
+                setOffersLoading(true);
+                setShoppingOffers([]);
+                try {
+                    const res = await authFetch(`${API_BASE}/shopping/offers`, {
+                        method: 'POST'
+                    });
+                    const data = await res.json();
+                    if (data.detail) {
+                        alert(data.detail);
+                    } else {
+                        setShoppingOffers(data.offers || []);
+                    }
+                } catch (e) { 
+                    console.error(e);
+                    alert('Fehler beim Suchen der Angebote');
+                }
+                setOffersLoading(false);
+            };
+
+            const getOfferForItem = (itemName) => {
+                // Find matching offer for this item
+                const itemLower = itemName.toLowerCase();
+                return shoppingOffers.find(offer => 
+                    itemLower.includes(offer.item?.toLowerCase()) || 
+                    offer.item?.toLowerCase().includes(itemLower.split(' ').pop())
+                );
+            };
+
             const getDayCalories = (dateStr) => {
                 return mealPlan
                     .filter(p => p.date === dateStr)
@@ -2048,8 +2079,53 @@
                                         </div>
                                     )}
                                     
+                                    {/* Offers Section */}
+                                    {shoppingOffers.length > 0 && (
+                                        <div className="border-t">
+                                            <div className="px-4 py-2 bg-yellow-50 font-semibold text-yellow-700 flex items-center gap-2">
+                                                <span>🏷️</span> Aktuelle Angebote
+                                                <span className="text-xs text-yellow-500 font-normal">({shoppingOffers.length})</span>
+                                            </div>
+                                            <div className="divide-y">
+                                                {shoppingOffers.map((offer, idx) => (
+                                                    <div key={idx} className="px-4 py-3 bg-yellow-50/30">
+                                                        <div className="flex items-center justify-between">
+                                                            <div>
+                                                                <span className="font-medium text-gray-800">{offer.item}</span>
+                                                                {offer.details && <span className="text-sm text-gray-500 ml-2">{offer.details}</span>}
+                                                            </div>
+                                                            <div className="text-right">
+                                                                <span className="font-bold text-green-600">{offer.price}</span>
+                                                                {offer.original_price && (
+                                                                    <span className="text-sm text-gray-400 line-through ml-2">{offer.original_price}</span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex items-center justify-between mt-1 text-sm">
+                                                            <span className="text-blue-600 font-medium">{offer.supermarket}</span>
+                                                            <span className="text-gray-500">{offer.valid_from} - {offer.valid_until}</span>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                    
                                     {(shoppingList.length > 0 || shoppingCategories.length > 0) && (
-                                        <div className="p-4 border-t">
+                                        <div className="p-4 border-t space-y-2">
+                                            <button onClick={searchOffers}
+                                                disabled={offersLoading}
+                                                className="w-full py-2 bg-yellow-500 text-white hover:bg-yellow-600 rounded-lg flex items-center justify-center gap-2 disabled:opacity-50">
+                                                {offersLoading ? (
+                                                    <>
+                                                        <span className="animate-spin">🔍</span> Suche Angebote...
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <span>🏷️</span> Angebote suchen
+                                                    </>
+                                                )}
+                                            </button>
                                             <button onClick={clearShoppingList}
                                                 className="w-full py-2 text-red-500 hover:bg-red-50 rounded-lg flex items-center justify-center gap-2">
                                                 <Icons.Trash /> Liste leeren
@@ -2181,6 +2257,8 @@
             const [household, setHousehold] = React.useState(null);
             const [loading, setLoading] = React.useState(true);
             const [copied, setCopied] = React.useState(false);
+            const [postalCode, setPostalCode] = React.useState('');
+            const [savingPostal, setSavingPostal] = React.useState(false);
 
             React.useEffect(() => {
                 loadHousehold();
@@ -2191,6 +2269,7 @@
                     const res = await authFetch(`${API_BASE}/auth/household`);
                     const data = await res.json();
                     setHousehold(data);
+                    setPostalCode(data.postal_code || '');
                 } catch (e) { console.error(e); }
                 setLoading(false);
             };
@@ -2201,6 +2280,19 @@
                     setCopied(true);
                     setTimeout(() => setCopied(false), 2000);
                 }
+            };
+
+            const savePostalCode = async () => {
+                setSavingPostal(true);
+                try {
+                    await authFetch(`${API_BASE}/auth/household`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ postal_code: postalCode })
+                    });
+                    setHousehold(prev => ({ ...prev, postal_code: postalCode }));
+                } catch (e) { console.error(e); }
+                setSavingPostal(false);
             };
 
             return (
@@ -2257,6 +2349,29 @@
                                             </div>
                                         ))}
                                     </div>
+                                </div>
+
+                                {/* PLZ for offers */}
+                                <div className="border-t pt-4">
+                                    <p className="text-sm text-gray-500 mb-1">Postleitzahl (für Angebote)</p>
+                                    <div className="flex items-center gap-2">
+                                        <input 
+                                            type="text" 
+                                            value={postalCode}
+                                            onChange={(e) => setPostalCode(e.target.value)}
+                                            placeholder="z.B. 42929"
+                                            maxLength={5}
+                                            className="flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                                        />
+                                        <button 
+                                            onClick={savePostalCode}
+                                            disabled={savingPostal || postalCode === household.postal_code}
+                                            className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50"
+                                        >
+                                            {savingPostal ? '...' : 'Speichern'}
+                                        </button>
+                                    </div>
+                                    <p className="text-xs text-gray-400 mt-1">Für lokale Supermarkt-Angebote</p>
                                 </div>
                             </div>
                         ) : (
