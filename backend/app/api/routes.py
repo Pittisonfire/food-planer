@@ -738,11 +738,17 @@ async def search_offers(
     # Extract item names
     item_names = [item.name for item in items]
     
+    # Get preferred supermarkets or use defaults
+    if household.preferred_supermarkets:
+        supermarkets = household.preferred_supermarkets.split(",")
+    else:
+        supermarkets = ["Lidl", "Aldi", "REWE", "Kaufland", "Edeka", "Netto", "Penny"]
+    
     # Search for offers
     offers = await claude_ai.search_supermarket_offers(
         items=item_names,
         postal_code=household.postal_code,
-        supermarkets=["Lidl", "Aldi Nord", "Rewe"]
+        supermarkets=supermarkets
     )
     
     return {"offers": offers, "postal_code": household.postal_code}
