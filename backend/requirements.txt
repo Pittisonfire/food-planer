@@ -10,3 +10,4 @@ pydantic-settings==2.1.0
 python-multipart==0.0.6
 instaloader==4.10.3
 Pillow==10.2.0
+PyJWT==2.8.0
