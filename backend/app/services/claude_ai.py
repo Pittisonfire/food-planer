@@ -933,6 +933,8 @@ async def search_supermarket_offers(
                             continue
                         seen_offers.add(offer_key)
                         
+                        offer_id = result.get('id')
+                        
                         offer = {
                             "item": product_name,
                             "supermarket": retailer,
@@ -940,7 +942,8 @@ async def search_supermarket_offers(
                             "original_price": f"{old_price:.2f}€" if old_price else "",
                             "valid_from": valid_from,
                             "valid_until": valid_to,
-                            "details": result.get('description', '')
+                            "details": result.get('description', ''),
+                            "url": f"https://www.marktguru.de/offers/{offer_id}" if offer_id else None
                         }
                         all_offers.append(offer)
         
