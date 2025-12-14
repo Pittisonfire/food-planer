@@ -701,25 +701,26 @@ ZUTATEN AUS REZEPTEN:
 {pantry_context}
 
 AUFGABEN:
-1. Fasse gleiche Zutaten mit Mengen zusammen (z.B. "200g Hähnchen" + "300g Hähnchen" = "500g Hähnchenbrust")
-2. Normalisiere Einheiten (1000g → 1kg, 1000ml → 1l)
-3. Ordne jede Zutat einer Kategorie zu
-4. Identifiziere Basis-Zutaten die man typischerweise zuhause hat
-5. Prüfe welche Zutaten im Vorrat sind
+1. ÜBERSETZE alle Zutaten ins Deutsche (z.B. "chicken breast" → "Hähnchenbrust", "garlic" → "Knoblauch")
+2. Fasse gleiche Zutaten mit Mengen zusammen (z.B. "200g Hähnchen" + "300g Hähnchen" = "500g Hähnchenbrust")
+3. Normalisiere Einheiten (1000g → 1kg, 1000ml → 1l)
+4. Ordne jede Zutat einer Kategorie zu - sei präzise, nicht alles ist "Sonstiges"!
+5. Identifiziere Basis-Zutaten die man typischerweise zuhause hat
+6. Prüfe welche Zutaten im Vorrat sind
 
-KATEGORIEN (nutze genau diese):
-- "Obst & Gemüse"
-- "Fleisch & Fisch"
-- "Eier & Milchprodukte"
-- "Backwaren"
-- "Tiefkühl"
-- "Konserven & Fertigprodukte"
-- "Gewürze & Öle"
-- "Getränke"
-- "Sonstiges"
+KATEGORIEN (nutze genau diese, sei präzise bei der Zuordnung):
+- "Obst & Gemüse" (Tomaten, Gurken, Paprika, Zwiebeln, Knoblauch, Kräuter, Salat, etc.)
+- "Fleisch & Fisch" (Hackfleisch, Hähnchen, Lachs, Thunfisch, Speck, etc.)
+- "Eier & Milchprodukte" (Eier, Milch, Sahne, Käse, Joghurt, Butter, etc.)
+- "Backwaren" (Brot, Brötchen, Wraps, Tortillas, etc.)
+- "Tiefkühl" (Tiefkühlgemüse, Tiefkühlpizza, etc.)
+- "Konserven & Fertigprodukte" (Dosentomaten, Kokosmilch, Brühe, Tomatenmark, etc.)
+- "Gewürze & Öle" (Salz, Pfeffer, Olivenöl, Gewürze, Saucen, Essig, etc.)
+- "Getränke" (Wein, Säfte, etc.)
+- "Sonstiges" (NUR wenn nichts anderes passt: Pasta, Reis, Nudeln, etc.)
 
 BASIS-ZUTATEN (typischerweise im Haushalt vorhanden):
-Salz, Pfeffer, Zucker, Mehl, Öl, Butter, Essig, Senf, Knoblauch, Zwiebeln, etc.
+Salz, Pfeffer, Zucker, Mehl, Öl, Butter, Essig, Senf, etc.
 
 Antworte NUR mit einem JSON-Objekt in diesem Format:
 {{
@@ -727,16 +728,14 @@ Antworte NUR mit einem JSON-Objekt in diesem Format:
     {{
       "name": "Hähnchenbrust",
       "amount": "500g",
-      "category": "Fleisch & Fisch",
-      "original_items": ["200g Hähnchenbrust", "300g Hähnchen"]
+      "category": "Fleisch & Fisch"
     }}
   ],
   "from_pantry": [
     {{
       "name": "Reis",
       "amount": "300g",
-      "pantry_match": "Reis",
-      "have_enough": true
+      "pantry_match": "Reis"
     }}
   ],
   "basic_items": [
