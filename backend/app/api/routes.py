@@ -496,7 +496,7 @@ async def get_shopping_list(
     items = db.query(ShoppingItem).filter(
         ShoppingItem.household_id == household_id
     ).order_by(ShoppingItem.checked, ShoppingItem.name).all()
-    return items
+    return [{"id": i.id, "name": i.name, "checked": i.checked, "category": i.category, "recipe_title": i.recipe_title} for i in items]
 
 
 def normalize_ingredient_key(ingredient: str) -> str:
@@ -535,13 +535,17 @@ async def generate_shopping_list(
             MealPlan.date.in_(date_objects)
         ).all()
     
-    # Collect all ingredients with recipe info
+    # Collect all ingredients WITH recipe info
     all_ingredients = []
     for plan in plans:
         recipe = db.query(Recipe).filter(Recipe.id == plan.recipe_id).first()
         if recipe and recipe.ingredients:
             for ingredient in recipe.ingredients:
-                all_ingredients.append(ingredient)
+                all_ingredients.append({
+                    "ingredient": ingredient,
+                    "recipe_id": recipe.id,
+                    "recipe_title": recipe.title
+                })
     
     if not all_ingredients:
         db.query(ShoppingItem).filter(ShoppingItem.household_id == household_id).delete()
@@ -574,19 +578,24 @@ async def generate_shopping_list(
     
     # Track which ingredients we've seen (for deduplication)
     seen_keys = set()
-    ingredient_counts = {}  # key -> list of original ingredients
+    ingredient_counts = {}  # key -> {"ingredients": [...], "recipes": set()}
     
-    for ing in all_ingredients:
+    for ing_data in all_ingredients:
+        ing = ing_data["ingredient"]
         key = normalize_ingredient_key(ing)
         if not key:
             continue
             
         if key not in ingredient_counts:
-            ingredient_counts[key] = []
-        ingredient_counts[key].append(ing)
+            ingredient_counts[key] = {"ingredients": [], "recipes": set()}
+        ingredient_counts[key]["ingredients"].append(ing)
+        ingredient_counts[key]["recipes"].add(ing_data["recipe_title"])
     
     # Process each unique ingredient
-    for key, original_list in ingredient_counts.items():
+    for key, data in ingredient_counts.items():
+        original_list = data["ingredients"]
+        recipe_titles = list(data["recipes"])
+        
         # Check if in pantry
         in_pantry = any(p in key or key in p for p in pantry_lower)
         
@@ -596,29 +605,60 @@ async def generate_shopping_list(
             if cached.is_basic:
                 basic_items.append({
                     "name": cached.display_name or key,
-                    "category": cached.category
+                    "category": cached.category,
+                    "recipes": recipe_titles
                 })
             elif in_pantry:
                 from_pantry.append({
                     "name": cached.display_name or key,
                     "amount": "",
-                    "pantry_match": key
+                    "pantry_match": key,
+                    "recipes": recipe_titles
                 })
             else:
                 cached_items.append({
                     "name": cached.display_name or key,
                     "amount": "",
                     "category": cached.category,
-                    "original_items": original_list
+                    "original_items": original_list,
+                    "recipes": recipe_titles
                 })
         else:
-            # Need to process with AI
-            uncached_ingredients.append(original_list[0])  # Send one example
+            # Need to process with AI - store recipe info for later
+            uncached_ingredients.append({
+                "ingredient": original_list[0],
+                "recipes": recipe_titles
+            })
     
     # Process uncached ingredients with AI (if any)
     new_items = []
     if uncached_ingredients:
-        smart_list = await claude_ai.process_shopping_list(uncached_ingredients, pantry_names)
+        # Build a map of ingredient -> recipes for lookup after AI processing
+        uncached_recipe_map = {}
+        for uc in uncached_ingredients:
+            key = normalize_ingredient_key(uc["ingredient"])
+            if key:
+                uncached_recipe_map[key] = uc["recipes"]
+        
+        def find_recipes_for_item(item_name: str) -> list:
+            """Find recipes that match this item name (fuzzy matching)"""
+            item_key = normalize_ingredient_key(item_name)
+            # Direct match
+            if item_key in uncached_recipe_map:
+                return list(uncached_recipe_map[item_key])
+            # Fuzzy match - check if any key contains or is contained in item_key
+            for key, recipes in uncached_recipe_map.items():
+                if len(key) >= 4 and len(item_key) >= 4:
+                    if key in item_key or item_key in key:
+                        return list(recipes)
+                    # Also check first word match
+                    if key.split()[0] == item_key.split()[0]:
+                        return list(recipes)
+            return []
+        
+        # Send just the ingredient strings to AI
+        ingredient_strings = [uc["ingredient"] for uc in uncached_ingredients]
+        smart_list = await claude_ai.process_shopping_list(ingredient_strings, pantry_names)
         
         # Save to cache and collect items
         for category in smart_list.get("categories", []):
@@ -635,10 +675,14 @@ async def generate_shopping_list(
                     )
                     db.add(cache_entry)
                 
+                # Try to find recipes for this item (with fuzzy matching)
+                item_recipes = find_recipes_for_item(item.get("name", ""))
+                
                 new_items.append({
                     "name": item.get("name"),
                     "amount": item.get("amount", ""),
-                    "category": category.get("name", "Sonstiges")
+                    "category": category.get("name", "Sonstiges"),
+                    "recipes": item_recipes
                 })
         
         # Save basic items to cache
@@ -653,7 +697,13 @@ async def generate_shopping_list(
                     is_basic=True
                 )
                 db.add(cache_entry)
-            basic_items.append(item)
+            
+            # Try to find recipes for this basic item
+            item_recipes = find_recipes_for_item(item.get("name", ""))
+            basic_items.append({
+                **item,
+                "recipes": item_recipes
+            })
         
         # Add from_pantry from AI
         from_pantry.extend(smart_list.get("from_pantry", []))
@@ -689,10 +739,12 @@ async def generate_shopping_list(
     for category in sorted_categories:
         for item in category.get("items", []):
             display_name = f"{item.get('amount', '')} {item.get('name', '')}".strip()
+            recipes = item.get("recipes", [])
             db_item = ShoppingItem(
                 household_id=household_id,
                 name=display_name,
-                category=category.get("name", "Sonstiges")
+                category=category.get("name", "Sonstiges"),
+                recipe_title=", ".join(recipes) if recipes else None
             )
             db.add(db_item)
     
@@ -706,7 +758,7 @@ async def generate_shopping_list(
         "categories": sorted_categories,
         "from_pantry": from_pantry,
         "basic_items": basic_items,
-        "items": [{"id": i.id, "name": i.name, "checked": i.checked, "category": i.category} for i in items]
+        "items": [{"id": i.id, "name": i.name, "checked": i.checked, "category": i.category, "recipe_title": i.recipe_title} for i in items]
     }
 
 
@@ -748,7 +800,8 @@ async def search_offers(
     offers = await claude_ai.search_supermarket_offers(
         items=item_names,
         postal_code=household.postal_code,
-        supermarkets=supermarkets
+        supermarkets=supermarkets,
+        edeka_market_id=household.edeka_market_id
     )
     
     return {"offers": offers, "postal_code": household.postal_code}
@@ -1150,3 +1203,103 @@ async def apply_recurring_meals(
     
     db.commit()
     return {"status": "applied", "applied": applied}
+
+
+@router.get("/edeka/markets")
+async def search_edeka_markets(query: str):
+    """Search for Edeka markets by PLZ or city name - fetches many markets and sorts by distance"""
+    import httpx
+    import math
+    
+    # First, get coordinates for the query using Nominatim
+    target_lat, target_lon = None, None
+    
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as geo_client:
+            geo_response = await geo_client.get(
+                "https://nominatim.openstreetmap.org/search",
+                params={"q": f"{query}, Germany", "format": "json", "limit": 1},
+                headers={"User-Agent": "FoodPlanner/1.0"}
+            )
+            if geo_response.status_code == 200:
+                geo_data = geo_response.json()
+                if geo_data:
+                    target_lat = float(geo_data[0].get('lat', 0))
+                    target_lon = float(geo_data[0].get('lon', 0))
+                    print(f"Geocoded '{query}' to ({target_lat}, {target_lon})")
+    except Exception as e:
+        print(f"Geocoding error: {e}")
+    
+    if not target_lat or not target_lon:
+        return {"markets": [], "error": "Konnte PLZ/Stadt nicht finden"}
+    
+    def haversine_distance(lat1, lon1, lat2, lon2):
+        """Calculate distance in km between two points"""
+        R = 6371  # Earth's radius in km
+        lat1, lat2 = math.radians(lat1), math.radians(lat2)
+        dlat = math.radians(lat2 - lat1)
+        dlon = math.radians(lon2 - lon1)
+        a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+        return R * c
+    
+    try:
+        all_markets = []
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # Fetch multiple pages to get more markets
+            for page in range(5):  # Get up to 500 markets
+                response = await client.get(
+                    "https://www.edeka.de/api/marketsearch/markets",
+                    params={"size": 100, "page": page}
+                )
+                
+                if response.status_code != 200:
+                    break
+                
+                data = response.json()
+                markets_on_page = data.get('markets', [])
+                
+                if not markets_on_page:
+                    break
+                
+                for m in markets_on_page:
+                    # Only include EDEKA markets (not nah&gut etc.)
+                    if m.get('distributionChannelType') != 'EDEKA':
+                        continue
+                    
+                    contact = m.get('contact', {})
+                    address = contact.get('address', {})
+                    city = address.get('city', {})
+                    coords = m.get('coordinates', {})
+                    
+                    market_lat = float(coords.get('lat', 0)) if coords.get('lat') else 0
+                    market_lon = float(coords.get('lon', 0)) if coords.get('lon') else 0
+                    
+                    if not market_lat or not market_lon:
+                        continue
+                    
+                    distance = haversine_distance(target_lat, target_lon, market_lat, market_lon)
+                    
+                    all_markets.append({
+                        "id": m.get('id'),
+                        "name": m.get('name'),
+                        "street": address.get('street', ''),
+                        "zipCode": city.get('zipCode', ''),
+                        "city": city.get('name', ''),
+                        "fullAddress": f"{address.get('street', '')}, {city.get('zipCode', '')} {city.get('name', '')}",
+                        "distance": round(distance, 1)
+                    })
+        
+        # Sort by distance and return closest 20
+        all_markets.sort(key=lambda x: x['distance'])
+        nearby_markets = [m for m in all_markets if m['distance'] < 50][:20]
+        
+        print(f"Found {len(nearby_markets)} EDEKA markets within 50km of {query}")
+        return {"markets": nearby_markets}
+            
+    except Exception as e:
+        print(f"Edeka market search error: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"markets": []}
