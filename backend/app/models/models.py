@@ -13,6 +13,8 @@ class Household(Base):
     invite_code = Column(String(20), unique=True, nullable=True)  # For inviting others
     postal_code = Column(String(10), nullable=True)  # PLZ for local offers
     preferred_supermarkets = Column(Text, nullable=True)  # Comma-separated: "Lidl,REWE,Aldi"
+    edeka_market_id = Column(Integer, nullable=True)  # Specific Edeka market for local offers
+    edeka_market_name = Column(String(255), nullable=True)  # Display name of the market
     created_at = Column(DateTime, server_default=func.now())
     
     # Relationships
@@ -85,6 +87,8 @@ class ShoppingItem(Base):
     name = Column(String(500), nullable=False)
     category = Column(String(100), default="Sonstiges")  # Category for grouping
     checked = Column(Boolean, default=False)
+    recipe_id = Column(Integer, nullable=True)  # Which recipe this ingredient is for
+    recipe_title = Column(String(255), nullable=True)  # Recipe name for display
     created_at = Column(DateTime, server_default=func.now())
 
 
