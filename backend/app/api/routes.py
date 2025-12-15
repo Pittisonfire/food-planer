@@ -113,6 +113,22 @@ async def get_favorite_recipes(
     return recipes
 
 
+@router.get("/recipes/{recipe_id}")
+async def get_recipe_by_id(
+    recipe_id: int,
+    household_id: int = Depends(get_current_household),
+    db: Session = Depends(get_db)
+):
+    """Get a single recipe by ID"""
+    recipe = db.query(Recipe).filter(
+        Recipe.id == recipe_id,
+        Recipe.household_id == household_id
+    ).first()
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Rezept nicht gefunden")
+    return recipe
+
+
 @router.put("/recipes/{recipe_id}/favorite")
 async def toggle_favorite(
     recipe_id: int,
@@ -496,7 +512,7 @@ async def get_shopping_list(
     items = db.query(ShoppingItem).filter(
         ShoppingItem.household_id == household_id
     ).order_by(ShoppingItem.checked, ShoppingItem.name).all()
-    return [{"id": i.id, "name": i.name, "checked": i.checked, "category": i.category, "recipe_title": i.recipe_title} for i in items]
+    return [{"id": i.id, "name": i.name, "checked": i.checked, "category": i.category, "recipe_id": i.recipe_id, "recipe_title": i.recipe_title} for i in items]
 
 
 def normalize_ingredient_key(ingredient: str) -> str:
@@ -578,7 +594,7 @@ async def generate_shopping_list(
     
     # Track which ingredients we've seen (for deduplication)
     seen_keys = set()
-    ingredient_counts = {}  # key -> {"ingredients": [...], "recipes": set()}
+    ingredient_counts = {}  # key -> {"ingredients": [...], "recipes": [{"id": x, "title": y}, ...]}
     
     for ing_data in all_ingredients:
         ing = ing_data["ingredient"]
@@ -587,14 +603,17 @@ async def generate_shopping_list(
             continue
             
         if key not in ingredient_counts:
-            ingredient_counts[key] = {"ingredients": [], "recipes": set()}
+            ingredient_counts[key] = {"ingredients": [], "recipes": {}}
         ingredient_counts[key]["ingredients"].append(ing)
-        ingredient_counts[key]["recipes"].add(ing_data["recipe_title"])
+        # Use dict to dedupe by recipe_id
+        ingredient_counts[key]["recipes"][ing_data["recipe_id"]] = ing_data["recipe_title"]
     
     # Process each unique ingredient
     for key, data in ingredient_counts.items():
         original_list = data["ingredients"]
-        recipe_titles = list(data["recipes"])
+        # Convert to list of {id, title} dicts
+        recipe_list = [{"id": rid, "title": rtitle} for rid, rtitle in data["recipes"].items()]
+        recipe_titles = [r["title"] for r in recipe_list]
         
         # Check if in pantry
         in_pantry = any(p in key or key in p for p in pantry_lower)
@@ -606,14 +625,14 @@ async def generate_shopping_list(
                 basic_items.append({
                     "name": cached.display_name or key,
                     "category": cached.category,
-                    "recipes": recipe_titles
+                    "recipes": recipe_list
                 })
             elif in_pantry:
                 from_pantry.append({
                     "name": cached.display_name or key,
                     "amount": "",
                     "pantry_match": key,
-                    "recipes": recipe_titles
+                    "recipes": recipe_list
                 })
             else:
                 cached_items.append({
@@ -621,13 +640,13 @@ async def generate_shopping_list(
                     "amount": "",
                     "category": cached.category,
                     "original_items": original_list,
-                    "recipes": recipe_titles
+                    "recipes": recipe_list
                 })
         else:
             # Need to process with AI - store recipe info for later
             uncached_ingredients.append({
                 "ingredient": original_list[0],
-                "recipes": recipe_titles
+                "recipes": recipe_list
             })
     
     # Process uncached ingredients with AI (if any)
@@ -740,11 +759,15 @@ async def generate_shopping_list(
         for item in category.get("items", []):
             display_name = f"{item.get('amount', '')} {item.get('name', '')}".strip()
             recipes = item.get("recipes", [])
+            # recipes is now list of {"id": x, "title": y}
+            recipe_id = recipes[0]["id"] if recipes else None
+            recipe_title = ", ".join(r["title"] for r in recipes) if recipes else None
             db_item = ShoppingItem(
                 household_id=household_id,
                 name=display_name,
                 category=category.get("name", "Sonstiges"),
-                recipe_title=", ".join(recipes) if recipes else None
+                recipe_id=recipe_id,
+                recipe_title=recipe_title
             )
             db.add(db_item)
     
@@ -758,7 +781,7 @@ async def generate_shopping_list(
         "categories": sorted_categories,
         "from_pantry": from_pantry,
         "basic_items": basic_items,
-        "items": [{"id": i.id, "name": i.name, "checked": i.checked, "category": i.category, "recipe_title": i.recipe_title} for i in items]
+        "items": [{"id": i.id, "name": i.name, "checked": i.checked, "category": i.category, "recipe_id": i.recipe_id, "recipe_title": i.recipe_title} for i in items]
     }
 
 
