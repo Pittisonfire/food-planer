@@ -2064,6 +2064,7 @@
                                                                 const dbItem = shoppingList.find(i => i.name.includes(item.name));
                                                                 const isChecked = dbItem?.checked || false;
                                                                 const itemId = dbItem?.id;
+                                                                const recipeTitle = dbItem?.recipe_title || (item.recipes ? item.recipes.join(', ') : null);
                                                                 const offer = getOfferForItem(item.name, category.name);
                                                                 return (
                                                                     <div key={idx} 
@@ -2072,10 +2073,17 @@
                                                                         <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition flex-shrink-0 ${isChecked ? 'bg-green-500 border-green-500' : 'border-gray-300'}`}>
                                                                             {isChecked && <Icons.Check />}
                                                                         </div>
-                                                                        <div className="flex-1">
-                                                                            <span className={`${isChecked ? 'line-through text-gray-400' : 'text-gray-700'}`}>
-                                                                                <span className="font-medium">{item.amount}</span> {item.name}
-                                                                            </span>
+                                                                        <div className="flex-1 min-w-0">
+                                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                                <span className={`${isChecked ? 'line-through text-gray-400' : 'text-gray-700'}`}>
+                                                                                    <span className="font-medium">{item.amount}</span> {item.name}
+                                                                                </span>
+                                                                                {recipeTitle && !isChecked && (
+                                                                                    <span className="text-xs text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded truncate max-w-[150px]" title={recipeTitle}>
+                                                                                        {recipeTitle}
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
                                                                             {offer && !isChecked && (
                                                                                 <div className="flex items-center gap-2 mt-1">
                                                                                     <span className="text-xs bg-yellow-400 text-yellow-900 px-2 py-0.5 rounded-full font-medium">
@@ -2102,9 +2110,18 @@
                                                             <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition ${item.checked ? 'bg-green-500 border-green-500' : 'border-gray-300'}`}>
                                                                 {item.checked && <Icons.Check />}
                                                             </div>
-                                                            <span className={`flex-1 ${item.checked ? 'line-through text-gray-400' : 'text-gray-700'}`}>
-                                                                {item.name}
-                                                            </span>
+                                                            <div className="flex-1 min-w-0">
+                                                                <div className="flex items-center gap-2 flex-wrap">
+                                                                    <span className={`${item.checked ? 'line-through text-gray-400' : 'text-gray-700'}`}>
+                                                                        {item.name}
+                                                                    </span>
+                                                                    {item.recipe_title && !item.checked && (
+                                                                        <span className="text-xs text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded truncate max-w-[150px]" title={item.recipe_title}>
+                                                                            {item.recipe_title}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            </div>
                                                         </div>
                                                     ))}
                                                 </div>
@@ -2356,6 +2373,13 @@
             const [selectedSupermarkets, setSelectedSupermarkets] = React.useState([]);
             const [savingSupermarkets, setSavingSupermarkets] = React.useState(false);
             
+            // Edeka market selection
+            const [edekaSearchQuery, setEdekaSearchQuery] = React.useState('');
+            const [edekaSearchResults, setEdekaSearchResults] = React.useState([]);
+            const [searchingEdeka, setSearchingEdeka] = React.useState(false);
+            const [selectedEdekaMarket, setSelectedEdekaMarket] = React.useState(null);
+            const [savingEdekaMarket, setSavingEdekaMarket] = React.useState(false);
+            
             const allSupermarkets = ['Lidl', 'Aldi', 'REWE', 'Kaufland', 'Edeka', 'Netto', 'Penny', 'Handelshof', 'Metro'];
 
             React.useEffect(() => {
@@ -2369,6 +2393,12 @@
                     setHousehold(data);
                     setPostalCode(data.postal_code || '');
                     setSelectedSupermarkets(data.preferred_supermarkets || ['Lidl', 'Aldi', 'REWE', 'Kaufland', 'Edeka', 'Netto', 'Penny']);
+                    if (data.edeka_market_id) {
+                        setSelectedEdekaMarket({
+                            id: data.edeka_market_id,
+                            name: data.edeka_market_name
+                        });
+                    }
                 } catch (e) { console.error(e); }
                 setLoading(false);
             };
@@ -2415,9 +2445,67 @@
                 setSavingSupermarkets(false);
             };
 
+            const searchEdekaMarkets = async () => {
+                if (!edekaSearchQuery || edekaSearchQuery.length < 3) return;
+                setSearchingEdeka(true);
+                try {
+                    const res = await authFetch(`${API_BASE}/edeka/markets?query=${encodeURIComponent(edekaSearchQuery)}`);
+                    const data = await res.json();
+                    setEdekaSearchResults(data.markets || []);
+                } catch (e) { 
+                    console.error(e); 
+                    setEdekaSearchResults([]);
+                }
+                setSearchingEdeka(false);
+            };
+
+            const selectEdekaMarket = async (market) => {
+                setSavingEdekaMarket(true);
+                try {
+                    await authFetch(`${API_BASE}/auth/household`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            edeka_market_id: market.id,
+                            edeka_market_name: market.name
+                        })
+                    });
+                    setSelectedEdekaMarket(market);
+                    setHousehold(prev => ({ 
+                        ...prev, 
+                        edeka_market_id: market.id,
+                        edeka_market_name: market.name 
+                    }));
+                    setEdekaSearchResults([]);
+                    setEdekaSearchQuery('');
+                } catch (e) { console.error(e); }
+                setSavingEdekaMarket(false);
+            };
+
+            const clearEdekaMarket = async () => {
+                setSavingEdekaMarket(true);
+                try {
+                    await authFetch(`${API_BASE}/auth/household`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            edeka_market_id: 0,
+                            edeka_market_name: ''
+                        })
+                    });
+                    setSelectedEdekaMarket(null);
+                    setHousehold(prev => ({ 
+                        ...prev, 
+                        edeka_market_id: null,
+                        edeka_market_name: null 
+                    }));
+                } catch (e) { console.error(e); }
+                setSavingEdekaMarket(false);
+            };
+
             return (
                 <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4" onClick={onClose}>
-                    <div className="bg-white rounded-2xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
+                    <div className="bg-white rounded-2xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-between mb-4">
                             <h3 className="text-lg font-bold text-gray-800">Haushalt</h3>
                             <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
@@ -2521,6 +2609,80 @@
                                         </button>
                                     </div>
                                 </div>
+
+                                {/* Edeka Market Selection */}
+                                {selectedSupermarkets.includes('Edeka') && (
+                                    <div className="border-t pt-4">
+                                        <p className="text-sm text-gray-500 mb-2">Mein EDEKA-Markt</p>
+                                        
+                                        {selectedEdekaMarket ? (
+                                            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                                                <div className="flex items-center justify-between">
+                                                    <div>
+                                                        <p className="font-medium text-gray-800">{selectedEdekaMarket.name}</p>
+                                                        {selectedEdekaMarket.fullAddress && (
+                                                            <p className="text-xs text-gray-500">{selectedEdekaMarket.fullAddress}</p>
+                                                        )}
+                                                    </div>
+                                                    <button 
+                                                        onClick={clearEdekaMarket}
+                                                        disabled={savingEdekaMarket}
+                                                        className="text-red-500 hover:text-red-700 text-sm"
+                                                    >
+                                                        Entfernen
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-2">
+                                                <div className="flex gap-2">
+                                                    <input 
+                                                        type="text"
+                                                        value={edekaSearchQuery}
+                                                        onChange={(e) => setEdekaSearchQuery(e.target.value)}
+                                                        onKeyDown={(e) => e.key === 'Enter' && searchEdekaMarkets()}
+                                                        placeholder="PLZ oder Stadt eingeben..."
+                                                        className="flex-1 px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-yellow-500"
+                                                    />
+                                                    <button 
+                                                        onClick={searchEdekaMarkets}
+                                                        disabled={searchingEdeka || edekaSearchQuery.length < 3}
+                                                        className="px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 disabled:opacity-50 text-sm"
+                                                    >
+                                                        {searchingEdeka ? '...' : 'Suchen'}
+                                                    </button>
+                                                </div>
+                                                
+                                                {edekaSearchResults.length > 0 && (
+                                                    <div className="max-h-48 overflow-y-auto border rounded-lg divide-y">
+                                                        {edekaSearchResults.map(market => (
+                                                            <button
+                                                                key={market.id}
+                                                                onClick={() => selectEdekaMarket(market)}
+                                                                disabled={savingEdekaMarket}
+                                                                className="w-full text-left p-3 hover:bg-yellow-50 transition-colors"
+                                                            >
+                                                                <div className="flex justify-between items-start">
+                                                                    <div>
+                                                                        <p className="font-medium text-gray-800 text-sm">{market.name}</p>
+                                                                        <p className="text-xs text-gray-500">{market.fullAddress}</p>
+                                                                    </div>
+                                                                    {market.distance && (
+                                                                        <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded ml-2 whitespace-nowrap">
+                                                                            {market.distance} km
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                                
+                                                <p className="text-xs text-gray-400">Für filialspezifische Edeka-Angebote</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                         ) : (
                             <div className="text-center py-8 text-gray-500">Haushalt nicht gefunden</div>
