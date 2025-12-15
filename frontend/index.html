@@ -341,6 +341,19 @@
                 } catch (e) { console.error(e); }
             };
 
+            // Open recipe by ID (fetches recipe and shows modal)
+            const openRecipeById = async (recipeId, e) => {
+                if (e) e.stopPropagation();
+                if (!recipeId) return;
+                try {
+                    const res = await authFetch(`${API_BASE}/recipes/${recipeId}`);
+                    if (res.ok) {
+                        const recipe = await res.json();
+                        setRecipeModal(recipe);
+                    }
+                } catch (e) { console.error(e); }
+            };
+
             // Recipe Detail Modal Component
             const RecipeModal = ({ recipe, onClose }) => {
                 if (!recipe) return null;
@@ -2064,7 +2077,9 @@
                                                                 const dbItem = shoppingList.find(i => i.name.includes(item.name));
                                                                 const isChecked = dbItem?.checked || false;
                                                                 const itemId = dbItem?.id;
-                                                                const recipeTitle = dbItem?.recipe_title || (item.recipes ? item.recipes.join(', ') : null);
+                                                                // Get recipe info - from DB or from generated categories
+                                                                const recipeId = dbItem?.recipe_id || (item.recipes && item.recipes[0]?.id);
+                                                                const recipeTitle = dbItem?.recipe_title || (item.recipes ? item.recipes.map(r => r.title || r).join(', ') : null);
                                                                 const offer = getOfferForItem(item.name, category.name);
                                                                 return (
                                                                     <div key={idx} 
@@ -2079,9 +2094,13 @@
                                                                                     <span className="font-medium">{item.amount}</span> {item.name}
                                                                                 </span>
                                                                                 {recipeTitle && !isChecked && (
-                                                                                    <span className="text-xs text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded truncate max-w-[150px]" title={recipeTitle}>
+                                                                                    <button 
+                                                                                        onClick={(e) => openRecipeById(recipeId, e)}
+                                                                                        className="text-xs text-blue-600 bg-blue-50 hover:bg-blue-100 px-1.5 py-0.5 rounded truncate max-w-[150px] cursor-pointer transition" 
+                                                                                        title={`${recipeTitle} - Klicken zum Öffnen`}
+                                                                                    >
                                                                                         {recipeTitle}
-                                                                                    </span>
+                                                                                    </button>
                                                                                 )}
                                                                             </div>
                                                                             {offer && !isChecked && (
@@ -2116,9 +2135,13 @@
                                                                         {item.name}
                                                                     </span>
                                                                     {item.recipe_title && !item.checked && (
-                                                                        <span className="text-xs text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded truncate max-w-[150px]" title={item.recipe_title}>
+                                                                        <button 
+                                                                            onClick={(e) => openRecipeById(item.recipe_id, e)}
+                                                                            className="text-xs text-blue-600 bg-blue-50 hover:bg-blue-100 px-1.5 py-0.5 rounded truncate max-w-[150px] cursor-pointer transition" 
+                                                                            title={`${item.recipe_title} - Klicken zum Öffnen`}
+                                                                        >
                                                                             {item.recipe_title}
-                                                                        </span>
+                                                                        </button>
                                                                     )}
                                                                 </div>
                                                             </div>
