@@ -818,7 +818,8 @@ Antworte NUR mit validem JSON, kein anderer Text:"""
 async def search_supermarket_offers(
     items: list[str],
     postal_code: str,
-    supermarkets: list[str] = ["Lidl", "Aldi", "Rewe", "Kaufland", "Edeka", "Netto", "Penny"]
+    supermarkets: list[str] = ["Lidl", "Aldi", "Rewe", "Kaufland", "Edeka", "Netto", "Penny"],
+    edeka_market_id: int = None
 ) -> list[dict]:
     """Search for current supermarket offers using Marktguru API"""
     
@@ -831,7 +832,9 @@ async def search_supermarket_offers(
     
     # Extract product names from items (remove quantities)
     search_terms = []
-    for item in items[:10]:  # Max 10 items
+    original_items_lower = [item.lower() for item in items]  # Keep original items for matching
+    
+    for item in items[:15]:  # Max 15 items
         # Remove quantities, units, and common prefixes
         cleaned = item
         # Remove leading numbers and units
@@ -855,6 +858,31 @@ async def search_supermarket_offers(
     
     print(f"Searching Marktguru for: {search_terms} in PLZ {postal_code}")
     print(f"Filtering by supermarkets: {supermarkets}")
+    
+    def offer_matches_items(offer_name: str, item_list: list[str]) -> bool:
+        """Check if an offer actually matches any item on the shopping list"""
+        offer_lower = offer_name.lower()
+        
+        # Extract key words from offer (first 2-3 significant words)
+        offer_words = [w for w in re.sub(r'[^\w\s]', '', offer_lower).split() if len(w) > 2][:3]
+        
+        for item in item_list:
+            item_lower = item.lower()
+            # Extract key words from item
+            item_words = [w for w in re.sub(r'[^\w\s]', '', item_lower).split() if len(w) > 2]
+            
+            # Check if any significant word from offer matches item
+            for offer_word in offer_words:
+                if len(offer_word) < 4:
+                    continue
+                for item_word in item_words:
+                    if len(item_word) < 4:
+                        continue
+                    # Check if words match (or one contains the other)
+                    if (offer_word in item_word or item_word in offer_word or
+                        offer_word[:5] == item_word[:5]):  # Prefix match for plurals etc
+                        return True
+        return False
     
     all_offers = []
     seen_offers = set()  # Deduplicate by product+price+retailer_base
@@ -964,14 +992,22 @@ async def search_supermarket_offers(
         
         # Also search Edeka if selected
         if any('edeka' in s.lower() for s in supermarkets):
-            edeka_offers = await search_edeka_offers(search_terms, postal_code)
+            edeka_offers = await search_edeka_offers(search_terms, postal_code, edeka_market_id)
             all_offers.extend(edeka_offers)
         
-        # Sort by retailer for better readability
-        all_offers.sort(key=lambda x: x['supermarket'])
+        # Filter offers to only include those that actually match items on the list
+        filtered_offers = []
+        for offer in all_offers:
+            if offer_matches_items(offer['item'], items):
+                filtered_offers.append(offer)
+            else:
+                print(f"Filtered out non-matching offer: {offer['item']}")
         
-        print(f"Found {len(all_offers)} offers total (Marktguru + Edeka)")
-        return all_offers
+        # Sort by retailer for better readability
+        filtered_offers.sort(key=lambda x: x['supermarket'])
+        
+        print(f"Found {len(all_offers)} offers, kept {len(filtered_offers)} matching items")
+        return filtered_offers
         
     except Exception as e:
         print(f"Marktguru search error: {e}")
@@ -980,16 +1016,27 @@ async def search_supermarket_offers(
         return []
 
 
-async def search_edeka_offers(search_terms: list, postal_code: str) -> list:
-    """Search Edeka offers API"""
+async def search_edeka_offers(search_terms: list, postal_code: str, market_id: int = None) -> list:
+    """Search Edeka offers API - uses market_id for store-specific offers or national offers as fallback"""
     try:
-        # Edeka API endpoint - uses coordinates, but we'll use a generic request for national offers
+        # Edeka API endpoint
         url = "https://www.edeka.de/eh/service/eh/offers.jsp"
-        params = {
-            "marketid": "0",  # 0 = national offers
-            "latitude": "51.1494",
-            "longitude": "7.2148"
-        }
+        
+        # If we have a specific market ID, use it; otherwise use national offers
+        if market_id:
+            params = {
+                "marketid": str(market_id),
+                "latitude": "51.1494",
+                "longitude": "7.2148"
+            }
+            print(f"Searching Edeka offers for market ID: {market_id}")
+        else:
+            params = {
+                "marketid": "0",  # 0 = national offers
+                "latitude": "51.1494",
+                "longitude": "7.2148"
+            }
+            print("Searching Edeka national offers (no market selected)")
         
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.get(url, params=params)
